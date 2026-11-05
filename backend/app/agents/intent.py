@@ -2,15 +2,19 @@
 Gemini turns one message into one tool call. It never moves money and
 never sees payment data: our code does all of that after the user confirms.
 """
+import os
+
 from dotenv import dotenv_values
 from google import genai
 from google.genai import types
 
 from app.core.config import BACKEND_DIR
 
-# Read the key from .env ONLY. A Windows environment variable with an old,
-# out-of-credit GEMINI_API_KEY exists on this PC and must not win.
-_ENV = dotenv_values(BACKEND_DIR / ".env")
+# On the developer PC read the key from .env ONLY: a Windows environment
+# variable with an old, out-of-credit GEMINI_API_KEY exists there and must not
+# win. On a host (Railway) there is no .env file, so use its variables.
+_ENV_FILE = BACKEND_DIR / ".env"
+_ENV = dotenv_values(_ENV_FILE) if _ENV_FILE.exists() else dict(os.environ)
 
 # Models to try in order (each has its own free daily limit). Override in .env:
 # GEMINI_MODELS=gemini-3-flash-preview,gemini-flash-lite-latest
