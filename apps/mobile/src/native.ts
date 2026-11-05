@@ -29,7 +29,9 @@ export type SoundName =
   | 'failed'
   | 'confirm_needed'
   | 'listening'
-  | 'stopped';
+  | 'stopped'
+  | 'warning'
+  | 'unlocked';
 
 export const playSound = (name: SoundName | string | null | undefined) => {
   if (name) {

@@ -1,5 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
+  AccessibilityInfo,
+  AppState,
   Linking,
   Platform,
   SafeAreaView,
@@ -11,6 +13,7 @@ import {
 } from 'react-native';
 
 import {api, BACKEND_URL, LoginExpired} from './src/api';
+import LockScreen from './src/components/LockScreen';
 import LoginCard from './src/components/LoginCard';
 import TabBar, {TabName} from './src/components/TabBar';
 import AssistantScreen from './src/screens/AssistantScreen';
@@ -18,10 +21,20 @@ import HistoryScreen from './src/screens/HistoryScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import SendScreen from './src/screens/SendScreen';
-import {Account, Session, setUpPhoneSecurity} from './src/session';
+import {playSound} from './src/native';
+import {Account, LiveAlert, Session, setUpPhoneSecurity} from './src/session';
 import {colors} from './src/theme';
 
 const APP_AUTH_PREFIX = 'accessiblecommerce://auth';
+
+const ALERT_SOUNDS: Record<string, string> = {
+  payment_received: 'money_received',
+  refund_done: 'money_received',
+  payment_sent: 'payment_sent',
+  payment_failed: 'warning',
+  dispute: 'warning',
+  autopay: 'request_sent',
+};
 
 const LOGIN_ERRORS: Record<string, string> = {
   cancelled: 'PayPal login was cancelled.',
@@ -74,12 +87,34 @@ const App = () => {
   const [authBusy, setAuthBusy] = useState(false);
   const [authMessage, setAuthMessage] = useState('');
   const pendingNonce = useRef<string | null>(null);
+  const [locked, setLocked] = useState(false);
+  const leftAt = useRef<number | null>(null);
+  const [liveAlerts, setLiveAlerts] = useState<LiveAlert[]>([]);
+  const lastAlertId = useRef(0);
 
   const logout = useCallback((message = '') => {
     setAccount(null);
+    setLocked(false);
     setAuthMessage(message);
     setTab('home');
   }, []);
+
+  // App lock: away for more than 15 seconds -> fingerprint / face / PIN again.
+  // (Short trips, like a permission pop-up, don't lock.)
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'background') {
+        leftAt.current = Date.now();
+      } else if (state === 'active' && leftAt.current !== null) {
+        const away = Date.now() - leftAt.current;
+        leftAt.current = null;
+        if (account && away > 15000) {
+          setLocked(true);
+        }
+      }
+    });
+    return () => subscription.remove();
+  }, [account]);
 
   const handleError = useCallback(
     (error: unknown) => {
@@ -93,9 +128,48 @@ const App = () => {
   );
 
   const session: Session = useMemo(
-    () => ({account, tamil, setTamil, logout, goTo: setTab, handleError}),
-    [account, tamil, logout, handleError],
+    () => ({account, liveAlerts, tamil, setTamil, logout, goTo: setTab, handleError}),
+    [account, liveAlerts, tamil, logout, handleError],
   );
+
+  // Real-time alerts from PayPal webhooks: check every 20 seconds while open.
+  useEffect(() => {
+    if (!account) {
+      setLiveAlerts([]);
+      lastAlertId.current = 0;
+      return;
+    }
+    let first = true;
+    const check = async () => {
+      if (AppState.currentState !== 'active') {
+        return;
+      }
+      try {
+        const data = await api<{notifications: LiveAlert[]}>(
+          `/api/notifications?after_id=${lastAlertId.current}`,
+          account.token,
+        );
+        const fresh = data.notifications;
+        if (!fresh.length) {
+          return;
+        }
+        lastAlertId.current = Math.max(...fresh.map(n => n.id));
+        setLiveAlerts(current => [...fresh, ...current].slice(0, 20));
+        // Old alerts load quietly on login; new ones are announced.
+        if (!first) {
+          playSound(ALERT_SOUNDS[fresh[0].kind] ?? 'request_sent');
+          AccessibilityInfo.announceForAccessibility(fresh[0].text);
+        }
+      } catch {
+        // Offline for a moment: try again next time.
+      } finally {
+        first = false;
+      }
+    };
+    check();
+    const timer = setInterval(check, 20000);
+    return () => clearInterval(timer);
+  }, [account]);
 
   const finishLogin = async (token: string) => {
     const data = await api('/api/auth/me', token);
@@ -269,6 +343,14 @@ const App = () => {
       </View>
 
       <TabBar current={tab} onChange={setTab} tamil={tamil} />
+
+      {locked && account && (
+        <LockScreen
+          tamil={tamil}
+          onUnlocked={() => setLocked(false)}
+          onLogout={() => logout()}
+        />
+      )}
     </SafeAreaView>
   );
 };

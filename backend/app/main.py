@@ -10,6 +10,7 @@ from app.services.transaction_service import save_completed_capture
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.security import router as security_router
+from app.api.webhooks import router as webhooks_router
 from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException, Query
@@ -47,6 +48,7 @@ with engine.begin() as connection:
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(security_router)
+app.include_router(webhooks_router)
 
 @app.get("/api/paypal/payment-success")
 async def paypal_payment_success(token: str):
