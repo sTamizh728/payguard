@@ -1,4 +1,6 @@
 from pathlib import Path
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -23,6 +25,19 @@ class Settings(BaseSettings):
 
     database_url: str
     transaction_history_api_key: str | None = None
+
+    # PayPal webhook ID (from creating the webhook); needed to verify events.
+    paypal_webhook_id: str | None = None
+
+    @field_validator("database_url")
+    @classmethod
+    def use_psycopg_driver(cls, value: str) -> str:
+        # Railway (and most hosts) give postgres:// or postgresql://;
+        # SQLAlchemy needs to be told to use the psycopg 3 driver.
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix):]
+        return value
 
     # Comma-separated emails allowed to see store payments and issue refunds.
     merchant_admin_emails: str = ""
