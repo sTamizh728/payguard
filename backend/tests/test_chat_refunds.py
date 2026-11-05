@@ -25,7 +25,7 @@ from app.models.payment_transaction import PaymentTransaction
 from app.models.refund_request import RefundRequest
 from app.models.user import User
 from app.models.payout import Payout
-from app.services import payment_service, payout_service, refund_service
+from app.services import payment_service, payout_service, refund_service, scam_guard
 
 OWNER = SimpleNamespace(id=1, email="Owner@Shop.test", paypal_user_id="pp-owner")
 OTHER_OWNER = SimpleNamespace(id=2, email="partner@shop.test", paypal_user_id="pp-partner")
@@ -49,6 +49,9 @@ def fake_world(monkeypatch):
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(refund_service, "SessionLocal", Session)
     monkeypatch.setattr(payout_service, "SessionLocal", Session)
+    monkeypatch.setattr(scam_guard, "SessionLocal", Session)
+    # Scam guard has its own tests (test_scam_guard.py); keep it quiet here.
+    monkeypatch.setattr(scam_guard, "SIGNS_FOR_WARNING", 99)
     # These tests cover the chat rules; signatures are tested in test_device_security.py.
     monkeypatch.setattr(settings, "require_device_signature", False)
     monkeypatch.setattr(
