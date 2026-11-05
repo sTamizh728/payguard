@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.core.database import Base
 from app.models.device_key import DeviceKey  # noqa: F401 - registers the table
 from app.models.user import User
-from app.services import payment_service, payout_service, refund_service, security_service
+from app.services import payment_service, payout_service, refund_service, scam_guard, security_service
 
 OWNER = SimpleNamespace(id=1, email="owner@shop.test", paypal_user_id="pp-owner")
 
@@ -29,7 +29,7 @@ def world(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    for module in (refund_service, payout_service, security_service):
+    for module in (refund_service, payout_service, security_service, scam_guard):
         monkeypatch.setattr(module, "SessionLocal", Session)
     monkeypatch.setattr(settings, "merchant_admin_emails", "owner@shop.test")
     monkeypatch.setattr(settings, "require_device_signature", True)

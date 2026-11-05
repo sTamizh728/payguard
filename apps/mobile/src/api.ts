@@ -7,6 +7,9 @@ export type PendingAction = {
   id: string;
   type: 'payout' | 'refund' | string;
   summary: string;
+  // Scam guard: warning signs and the cooling-off wait before Confirm works.
+  warnings?: string[];
+  wait_seconds?: number;
 };
 
 export type AssistantReply = {

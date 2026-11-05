@@ -78,7 +78,10 @@ const SendScreen = ({session}: {session: Session}) => {
         body: {email: chosen.email, amount: value.toFixed(2)},
       });
       setPending(reply.pending_action);
-      if (reply.pending_action) {
+      if (reply.pending_action?.warnings?.length) {
+        setMessage(reply.reply);
+        playSound('failed'); // low buzz: scam warning signs
+      } else if (reply.pending_action) {
         playSound('confirm_needed');
       } else {
         setMessage(reply.reply);
@@ -98,7 +101,8 @@ const SendScreen = ({session}: {session: Session}) => {
     setBusy(true);
     try {
       const reply = await confirmWithSecurity(account.token, pending);
-      setPending(null);
+      // Still waiting (scam guard cooling-off) keeps the box open.
+      setPending(reply.pending_action);
       setMessage(reply.reply);
       if (reply.event === 'payment_sent') {
         setAmount('');

@@ -15,7 +15,7 @@ from app.agents import guardrails
 from app.agents.guardrails import MAX_TEXT
 from app.core.config import settings
 from app.models.user import User
-from app.services import contacts, payout_service, refund_service, security_service
+from app.services import contacts, payout_service, refund_service, scam_guard, security_service
 
 MAX_STRIKES = 2             # unsafe requests before refunds are locked
 LOCK_SECONDS = 10 * 60      # how long refunds stay locked
@@ -57,6 +57,9 @@ class PendingPayout:
     email: str
     amount: Decimal
     expires_at: float
+    # Scam guard: warning signs, and the earliest moment Confirm is accepted.
+    warnings: list[str] = field(default_factory=list)
+    not_before: float = 0.0
 
 
 @dataclass
@@ -538,10 +541,16 @@ def _prepare_payout_from_chat(user: User, session: ChatSession, intent: dict, te
         options = " or ".join(c["name"] for c in matches)
         return ChatReply(f"I found {len(matches)} people: {options}. Please say the full name.")
 
-    return prepare_payout(user, session, matches[0], amount)
+    return prepare_payout(user, session, matches[0], amount, text)
 
 
-def prepare_payout(user: User, session: ChatSession, contact: dict, amount: Decimal) -> ChatReply:
+def prepare_payout(
+    user: User,
+    session: ChatSession,
+    contact: dict,
+    amount: Decimal,
+    text: str | None = None,
+) -> ChatReply:
     """Shared by the chat and the Send screen. No money moves here."""
     if contact["email"].lower() == user.email.strip().lower():
         return ChatReply("That's your own account. Please choose someone else.")
@@ -551,24 +560,32 @@ def prepare_payout(user: User, session: ChatSession, contact: dict, amount: Deci
     except payout_service.PayoutNotAllowed as error:
         return ChatReply(str(error))
 
+    check = scam_guard.assess(user.id, contact["email"], amount, text)
+    now = time.monotonic()
+
     session.pending = PendingPayout(
         id=secrets.token_urlsafe(24),
         name=contact["name"],
         email=contact["email"],
         amount=amount,
-        expires_at=time.monotonic() + ACTION_TTL_SECONDS,
+        # A risky payment gets extra time, so the wait never eats the window.
+        expires_at=now + ACTION_TTL_SECONDS + check.wait_seconds,
+        warnings=check.reasons if check.risky else [],
+        not_before=now + check.wait_seconds,
     )
     summary = f"Send {_money(amount)} USD to {contact['name']}"
 
-    return ChatReply(
-        f"{summary}? Confirm with your fingerprint or PIN, or say 'cancel'.",
-        pending_action={
-            "id": session.pending.id,
-            "type": "payout",
-            "summary": summary,
-            "expires_in": ACTION_TTL_SECONDS,
-        },
-    )
+    if check.risky:
+        reply = (
+            f"Careful: this payment shows {len(check.reasons)} warning signs. "
+            + " ".join(check.reasons)
+            + f" If anyone is rushing you, stop. You can confirm in {check.wait_seconds} seconds, "
+            "or say 'cancel'."
+        )
+    else:
+        reply = f"{summary}? Confirm with your fingerprint or PIN, or say 'cancel'."
+
+    return ChatReply(reply, pending_action=_pending_public(session.pending))
 
 
 async def prepare_payout_from_form(user: User, email: str, amount: Decimal) -> ChatReply:
@@ -657,12 +674,16 @@ def _pending_public(pending: PendingRefund | PendingPayout) -> dict:
             f"Refund {_money(pending.amount)} {pending.currency} "
             f"of payment {pending.transaction_number}"
         )
-    return {
+    public = {
         "id": pending.id,
         "type": kind,
         "summary": summary,
         "expires_in": max(0, int(pending.expires_at - time.monotonic())),
     }
+    if isinstance(pending, PendingPayout) and pending.warnings:
+        public["warnings"] = pending.warnings
+        public["wait_seconds"] = max(0, math.ceil(pending.not_before - time.monotonic()))
+    return public
 
 
 async def confirm(user: User, action_id: str, signature: str | None = None) -> ChatReply:
@@ -673,6 +694,15 @@ async def confirm(user: User, action_id: str, signature: str | None = None) -> C
     # Single use: whatever happens next, this action is gone.
     if pending is None or not secrets.compare_digest(pending.id, action_id):
         return ChatReply("There is nothing to confirm. Please ask again.")
+
+    # Scam guard cooling-off: too early does NOT use up the payment.
+    if isinstance(pending, PendingPayout) and time.monotonic() < pending.not_before:
+        seconds = math.ceil(pending.not_before - time.monotonic())
+        return ChatReply(
+            f"Please wait {seconds} more seconds before confirming. "
+            "Take a moment: is this really someone you know?",
+            pending_action=_pending_public(pending),
+        )
 
     session.pending = None
 

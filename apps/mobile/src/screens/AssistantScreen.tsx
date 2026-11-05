@@ -120,7 +120,13 @@ const AssistantScreen = ({session}: {session: Session}) => {
         reply = await api<AssistantReply>('/api/chat', account.token, {body: {message}});
         add({from: 'payguard', text: reply.reply});
         setPending(reply.pending_action);
-        playSound(reply.pending_action ? 'confirm_needed' : reply.event);
+        playSound(
+          reply.pending_action?.warnings?.length
+            ? 'failed' // low buzz: scam warning signs
+            : reply.pending_action
+              ? 'confirm_needed'
+              : reply.event,
+        );
       } catch (error) {
         add({from: 'payguard', text: session.handleError(error)});
         playSound('failed');
