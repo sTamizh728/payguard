@@ -1,0 +1,47 @@
+# ---- secrets: never commit ----
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.jks
+*.keystore
+# The React Native debug key is public and needed to build debug APKs.
+!apps/mobile/android/app/debug.keystore
+
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# ---- local scratch, logs, downloads (NDK zips are huge) ----
+tmp/
+.gradle-tmp/
+*.log
+
+# ---- Node / React Native ----
+node_modules/
+npm-debug.log
+yarn-error.log
+*.jsbundle
+
+# ---- Android build output ----
+.gradle/
+build/
+.cxx/
+.kotlin/
+local.properties
+*.iml
+*.hprof
+.idea/
+
+# ---- iOS (not used, keep the template quiet) ----
+**/Pods/
+xcuserdata
+DerivedData
+
+# ---- OS ----
+.DS_Store
+Thumbs.db

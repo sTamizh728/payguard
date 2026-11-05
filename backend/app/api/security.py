@@ -1,0 +1,56 @@
+import time
+
+import jwt
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import BaseModel, Field
+
+from app.core.config import settings
+from app.core.security import bearer_scheme, get_current_user
+from app.models.user import User
+from app.services import security_service
+
+router = APIRouter(prefix="/api/security", tags=["Security"])
+
+
+class DeviceKeyRequest(BaseModel):
+    public_key: str = Field(min_length=40, max_length=400)
+
+
+def _token_age_seconds(credentials: HTTPAuthorizationCredentials | None) -> float:
+    """How long ago this login token was issued. get_current_user already checked it."""
+    try:
+        claims = jwt.decode(
+            credentials.credentials,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+        return time.time() - float(claims["iat"])
+    except Exception:
+        return float("inf")
+
+
+@router.get("/status")
+def security_status(current_user: User = Depends(get_current_user)):
+    return {
+        "has_device_key": security_service.has_device_key(current_user.id),
+        "required": settings.require_device_signature,
+    }
+
+
+@router.post("/device-key")
+def register_device_key(
+    data: DeviceKeyRequest,
+    current_user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+):
+    try:
+        security_service.register_device_key(
+            current_user.id,
+            data.public_key,
+            _token_age_seconds(credentials),
+        )
+    except security_service.KeyNotAllowed as error:
+        raise HTTPException(status_code=409, detail=str(error))
+
+    return {"has_device_key": True}
