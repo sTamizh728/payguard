@@ -96,6 +96,16 @@ const HomeScreen = ({session, loginCard}: {session: Session; loginCard: React.Re
           <Text style={ui.heading} accessibilityRole="header">
             {t(tamil, 'Alerts', 'எச்சரிக்கைகள்')}
           </Text>
+          {session.liveAlerts.slice(0, 3).map(alert => (
+            <Text
+              key={`live-${alert.id}`}
+              style={[
+                styles.alert,
+                ['payment_failed', 'dispute'].includes(alert.kind) ? styles.bad : styles.good,
+              ]}>
+              🔔 {alert.text}
+            </Text>
+          ))}
           {alerts.map((alert, index) => (
             <Text key={index} style={[styles.alert, styles[alert.kind]]}>
               {alert.text}

@@ -80,7 +80,7 @@ const SendScreen = ({session}: {session: Session}) => {
       setPending(reply.pending_action);
       if (reply.pending_action?.warnings?.length) {
         setMessage(reply.reply);
-        playSound('failed'); // low buzz: scam warning signs
+        playSound('warning'); // low notes: scam warning signs
       } else if (reply.pending_action) {
         playSound('confirm_needed');
       } else {

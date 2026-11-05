@@ -1,7 +1,7 @@
 package com.mobile
 
-import android.media.AudioManager
-import android.media.ToneGenerator
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -177,35 +177,45 @@ class PayGuardNativeModule(private val reactContext: ReactApplicationContext) :
 
   // ---------- sounds ----------
 
-  private val tones by lazy { ToneGenerator(AudioManager.STREAM_MUSIC, 85) }
+  // PayGuard's own chimes (res/raw/pg_*.wav, made by tools/make_sounds.py).
+  private val soundPool: SoundPool by lazy {
+    SoundPool.Builder()
+      .setMaxStreams(3)
+      .setAudioAttributes(
+        AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+          .build(),
+      )
+      .build()
+  }
+
+  private val soundIds: Map<String, Int> by lazy {
+    mapOf(
+      "payment_sent" to R.raw.pg_payment_sent,
+      "money_received" to R.raw.pg_money_received,
+      "refund_done" to R.raw.pg_money_received,
+      "request_sent" to R.raw.pg_request_sent,
+      "failed" to R.raw.pg_warning,
+      "warning" to R.raw.pg_warning,
+      "confirm_needed" to R.raw.pg_confirm_needed,
+      "listening" to R.raw.pg_listening,
+      "stopped" to R.raw.pg_stopped,
+      "unlocked" to R.raw.pg_unlocked,
+    ).mapValues { (_, resource) -> soundPool.load(reactContext, resource, 1) }
+  }
+
+  /** Load the sounds early so the first one plays without delay. */
+  override fun initialize() {
+    super.initialize()
+    soundIds
+  }
 
   /** Short sounds that are easy to tell apart without looking at the screen. */
   @ReactMethod
   fun playSound(name: String) {
-    val steps: List<Pair<Int, Int>> = when (name) {
-      // rising two notes: money left your wallet
-      "payment_sent" -> listOf(ToneGenerator.TONE_DTMF_5 to 120, ToneGenerator.TONE_DTMF_9 to 220)
-      // three quick bright notes: money came back / received
-      "refund_done", "money_received" -> listOf(
-        ToneGenerator.TONE_DTMF_9 to 90, ToneGenerator.TONE_DTMF_6 to 90, ToneGenerator.TONE_DTMF_D to 200,
-      )
-      // single soft beep: a request was sent and is waiting
-      "request_sent" -> listOf(ToneGenerator.TONE_PROP_BEEP to 200)
-      // low double buzz: something failed, nothing moved
-      "failed" -> listOf(ToneGenerator.TONE_PROP_NACK to 400)
-      // confirm prompt appears
-      "confirm_needed" -> listOf(ToneGenerator.TONE_PROP_PROMPT to 250)
-      // microphone on / off in live voice mode
-      "listening" -> listOf(ToneGenerator.TONE_PROP_BEEP2 to 120)
-      "stopped" -> listOf(ToneGenerator.TONE_PROP_ACK to 150)
-      else -> emptyList()
-    }
-
-    var delay = 0L
-    for ((tone, ms) in steps) {
-      mainHandler.postDelayed({ tones.startTone(tone, ms) }, delay)
-      delay += ms + 40L
-    }
+    val id = soundIds[name] ?: return
+    soundPool.play(id, 1f, 1f, 1, 0, 1f)
   }
 
   // ---------- speech ----------
@@ -258,6 +268,7 @@ class PayGuardNativeModule(private val reactContext: ReactApplicationContext) :
   override fun invalidate() {
     tts?.shutdown()
     tts = null
+    soundPool.release()
     super.invalidate()
   }
 }

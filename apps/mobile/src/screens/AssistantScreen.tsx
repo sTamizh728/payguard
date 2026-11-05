@@ -122,7 +122,7 @@ const AssistantScreen = ({session}: {session: Session}) => {
         setPending(reply.pending_action);
         playSound(
           reply.pending_action?.warnings?.length
-            ? 'failed' // low buzz: scam warning signs
+            ? 'warning' // low notes: scam warning signs
             : reply.pending_action
               ? 'confirm_needed'
               : reply.event,

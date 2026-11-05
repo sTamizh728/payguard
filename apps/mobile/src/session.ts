@@ -9,8 +9,16 @@ export type Account = {
   isOwner: boolean;
 };
 
+export type LiveAlert = {
+  id: number;
+  kind: string;
+  text: string;
+  created_at: string;
+};
+
 export type Session = {
   account: Account | null;
+  liveAlerts: LiveAlert[];
   tamil: boolean;
   setTamil: (tamil: boolean) => void;
   logout: (message?: string) => void;
