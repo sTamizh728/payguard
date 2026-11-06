@@ -1,5 +1,6 @@
-// The phone reaches the backend through `adb reverse tcp:8000 tcp:8000`.
-export const BACKEND_URL = 'http://127.0.0.1:8000';
+// The online backend (Render). For local testing instead, use
+// 'http://127.0.0.1:8000' together with `adb reverse tcp:8000 tcp:8000`.
+export const BACKEND_URL = 'https://payguard-api-0msk.onrender.com';
 
 export class LoginExpired extends Error {}
 
