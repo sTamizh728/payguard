@@ -274,3 +274,39 @@ async def checkout_cart(user_id: int) -> dict:
             raise ShopError("Please try again.") from None
 
     return {"code": code, "total": cart["total"], "summary": summary, "approval_url": paypal["approval_url"]}
+
+
+async def complete_checkout(paypal_order_id: str) -> dict:
+    """
+    After the buyer approved in PayPal: collect the money (safe to repeat),
+    record it so refunds work, mark the shop order paid and send an alert.
+    """
+    from app.services import transaction_service, webhook_service
+
+    try:
+        result = await payment_service.capture_paypal_order(paypal_order_id)
+    except RuntimeError:
+        raise ShopError("PayPal could not complete this payment. Nothing was charged twice.") from None
+
+    if result["status"] != "COMPLETED":
+        raise ShopError("The payment is not finished yet.")
+
+    for capture in result["captures"]:
+        if capture.get("status") == "COMPLETED":
+            transaction_service.save_completed_capture(
+                result["order_id"], capture,
+                payer_email=result.get("payer_email"), payer_id=result.get("payer_id"),
+            )
+
+    order = mark_paid(result["order_id"])
+    if order is not None and order.user_id is not None:
+        webhook_service.add_notification(
+            order.user_id, "order_paid",
+            f"Order {order.code} is paid: {order.summary or order.product_id}, ${order.total:.2f}.",
+        )
+    return {"paid": True, "order": _view(order) if order else None}
+
+
+def order_owner(paypal_order_id: str) -> int | None:
+    with SessionLocal() as db:
+        return db.scalar(select(ShopOrder.user_id).where(ShopOrder.paypal_order_id == paypal_order_id))

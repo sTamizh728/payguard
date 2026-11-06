@@ -9,6 +9,7 @@ from app.agents.chat_flow import is_merchant_admin
 from app.api.schemas import (
     MeResponse,
     PayPalExchangeRequest,
+    PayPalFinishRequest,
     TokenResponse,
     UserLogin,
     UserRegister,
@@ -170,6 +171,62 @@ async def paypal_login_callback(
 
     login_code = paypal_login_service.issue_login_code(user.id, app_nonce_hash)
     return _back_to_app(code=login_code)
+
+
+@router.get("/paypal/login-url")
+def paypal_login_url(app_nonce: str = Query(min_length=32, max_length=128)):
+    """
+    The app opens this PayPal address itself. PayPal then returns straight
+    into the app, so the phone browser never opens our server.
+    """
+    try:
+        url = paypal_login_service.build_authorize_url(
+            app_nonce, redirect_uri=settings.paypal_app_redirect_uri
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid login request.")
+    return {"url": url}
+
+
+@router.post("/paypal/finish", response_model=TokenResponse)
+async def paypal_login_finish(data: PayPalFinishRequest):
+    """The app hands over PayPal's code, plus the secret nonce only it knows."""
+    refused = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="PayPal login could not be completed. Please try again.",
+    )
+    try:
+        app_nonce_hash = paypal_login_service.consume_state(data.state)
+    except ValueError:
+        raise refused
+    if not paypal_login_service.nonce_matches(app_nonce_hash, data.app_nonce):
+        raise refused
+
+    try:
+        profile = await paypal_login_service.fetch_paypal_profile(data.code)
+    except ValueError as error:
+        print(f"[PayPal login] {error}")
+        raise HTTPException(status_code=400, detail="PayPal did not share your email address.")
+    except RuntimeError as error:
+        print(f"[PayPal login] {error}")
+        raise HTTPException(status_code=502, detail="PayPal is not reachable right now. Please try again.")
+
+    try:
+        user = authenticate_paypal_user(
+            paypal_user_id=profile["paypal_user_id"],
+            email=profile["email"],
+            full_name=profile["full_name"],
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail="An account with this email already exists. Log in with your email and password instead.",
+        )
+
+    return TokenResponse(
+        access_token=create_access_token(user.id),
+        expires_in=settings.access_token_expire_minutes * 60,
+    )
 
 
 @router.post("/paypal/exchange", response_model=TokenResponse)

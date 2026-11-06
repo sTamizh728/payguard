@@ -34,7 +34,7 @@ def is_valid_app_nonce(app_nonce: str) -> bool:
     return bool(APP_NONCE_PATTERN.fullmatch(app_nonce))
 
 
-def build_authorize_url(app_nonce: str) -> str:
+def build_authorize_url(app_nonce: str, redirect_uri: str | None = None) -> str:
     """
     Remember which app started this login and return the
     PayPal page where the user signs in.
@@ -54,12 +54,16 @@ def build_authorize_url(app_nonce: str) -> str:
         "client_id": settings.paypal_client_id,
         "response_type": "code",
         "scope": LOGIN_SCOPES,
-        "redirect_uri": settings.paypal_login_redirect_uri,
+        "redirect_uri": redirect_uri or settings.paypal_login_redirect_uri,
         "state": state,
         "fullPage": "true",
     }, quote_via=quote)
 
     return f"{settings.paypal_web_base_url.rstrip('/')}/connect/?{query}"
+
+
+def nonce_matches(app_nonce_hash: str, app_nonce: str) -> bool:
+    return hmac.compare_digest(app_nonce_hash, _hash_nonce(app_nonce))
 
 
 def consume_state(state: str) -> str:

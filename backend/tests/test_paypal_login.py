@@ -387,3 +387,61 @@ def test_fetch_profile_reports_step_and_error_name(monkeypatch):
 
     assert "userinfo (HTTP 400, invalid_request)" in str(error.value)
     assert "secret detail" not in str(error.value)
+
+
+# ---- browser-free login: PayPal returns straight into the app ----
+
+def app_login_state(client, nonce=NONCE):
+    response = client.get("/api/auth/paypal/login-url", params={"app_nonce": nonce})
+    assert response.status_code == 200
+    url = urlparse(response.json()["url"])
+    query = parse_qs(url.query)
+    assert query["redirect_uri"] == [settings.paypal_app_redirect_uri]
+    assert f"{url.scheme}://{url.netloc}" == settings.paypal_web_base_url
+    return query["state"][0]
+
+
+def test_app_login_finish_gives_a_token(client, monkeypatch):
+    fake_paypal_ok(monkeypatch, user_id=9)
+    state = app_login_state(client)
+
+    response = client.post("/api/auth/paypal/finish",
+                           json={"code": "paypal-code", "state": state, "app_nonce": NONCE})
+
+    assert response.status_code == 200
+    import jwt
+    claims = jwt.decode(response.json()["access_token"], settings.jwt_secret_key,
+                        algorithms=[settings.jwt_algorithm])
+    assert claims["sub"] == "9"
+
+
+def test_app_login_needs_the_same_phone_nonce(client, monkeypatch):
+    """A code + state stolen on the way back is useless without this phone's nonce."""
+    fake_paypal_ok(monkeypatch)
+    state = app_login_state(client)
+
+    wrong = client.post("/api/auth/paypal/finish",
+                        json={"code": "paypal-code", "state": state, "app_nonce": OTHER_NONCE})
+    assert wrong.status_code == 401
+    # The state was used up by the wrong try: the real phone must start again.
+    again = client.post("/api/auth/paypal/finish",
+                        json={"code": "paypal-code", "state": state, "app_nonce": NONCE})
+    assert again.status_code == 401
+
+
+def test_app_login_unknown_state(client, monkeypatch):
+    fake_paypal_ok(monkeypatch)
+    response = client.post("/api/auth/paypal/finish",
+                           json={"code": "paypal-code", "state": "x" * 32, "app_nonce": NONCE})
+    assert response.status_code == 401
+
+
+def test_app_login_paypal_down(client, monkeypatch):
+    async def broken(code):
+        raise RuntimeError("PayPal login failed at token (HTTP 500).")
+
+    monkeypatch.setattr(service, "fetch_paypal_profile", broken)
+    state = app_login_state(client)
+    response = client.post("/api/auth/paypal/finish",
+                           json={"code": "paypal-code", "state": state, "app_nonce": NONCE})
+    assert response.status_code == 502

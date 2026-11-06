@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     )
     # Deep link that sends the user back into the mobile app.
     app_auth_redirect_uri: str = "accessiblecommerce://auth"
+    # PayPal sends the login straight back into the app (no browser visit to
+    # our server). Must also be a Return URL in the PayPal dashboard.
+    paypal_app_redirect_uri: str = "accessiblecommerce://auth/paypal"
+    # Where PayPal checkout returns: into the app as well.
+    app_shop_return_uri: str = "accessiblecommerce://shop/paid"
+    app_shop_cancel_uri: str = "accessiblecommerce://shop/cancel"
 
     database_url: str
     transaction_history_api_key: str | None = None
