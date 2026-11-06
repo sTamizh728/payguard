@@ -172,3 +172,10 @@ def list_for(user_id: int, is_owner: bool, after_id: int = 0, limit: int = 20) -
             }
             for n in rows
         ]
+
+
+def add_notification(user_id: int | None, kind: str, text: str) -> None:
+    """An alert made by PayGuard itself (not from a PayPal webhook)."""
+    with SessionLocal() as db:
+        db.add(Notification(user_id=user_id, kind=kind, text=text[:300]))
+        db.commit()

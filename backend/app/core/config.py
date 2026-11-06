@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     # PayPal webhook ID (from creating the webhook); needed to verify events.
     paypal_webhook_id: str | None = None
 
+    # Twilio phone-call shop. Without the auth token every call is refused.
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_phone_number: str | None = None
+
     @model_validator(mode="after")
     def paypal_addresses_match_env(self):
         api_url, web_url = PAYPAL_URLS[self.paypal_env]

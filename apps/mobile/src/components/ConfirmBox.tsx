@@ -38,6 +38,7 @@ const ConfirmBox = ({action, busy, onConfirm, onCancel}: Props) => {
   }, [wait]);
 
   const locked = busy || wait > 0;
+  const checkout = action.type === 'checkout';
 
   return (
     <View style={[styles.box, warnings.length > 0 && styles.risky]}>
@@ -61,9 +62,11 @@ const ConfirmBox = ({action, busy, onConfirm, onCancel}: Props) => {
         {action.summary}?
       </Text>
       <Text style={styles.hint}>
-        {wait > 0
-          ? `Confirm unlocks in ${wait} seconds.`
-          : 'Confirm with your fingerprint, face or phone PIN.'}
+        {checkout
+          ? 'You will pay in PayPal checkout.'
+          : wait > 0
+            ? `Confirm unlocks in ${wait} seconds.`
+            : 'Confirm with your fingerprint, face or phone PIN.'}
       </Text>
       <View style={styles.row}>
         <TouchableOpacity
@@ -71,14 +74,22 @@ const ConfirmBox = ({action, busy, onConfirm, onCancel}: Props) => {
           disabled={locked}
           accessibilityRole="button"
           accessibilityLabel={
-            wait > 0
-              ? `Confirm, locked for ${wait} seconds`
-              : `Confirm with fingerprint or PIN: ${action.summary}`
+            checkout
+              ? `Pay with PayPal: ${action.summary}`
+              : wait > 0
+                ? `Confirm, locked for ${wait} seconds`
+                : `Confirm with fingerprint or PIN: ${action.summary}`
           }
           accessibilityState={{disabled: locked, busy}}
           style={[styles.button, styles.yes, locked && styles.disabled]}>
           <Text style={styles.yesText}>
-            {busy ? 'Please wait...' : wait > 0 ? `🔒 ${wait}s` : '🔒 Confirm'}
+            {busy
+              ? 'Please wait...'
+              : checkout
+                ? 'Pay with PayPal'
+                : wait > 0
+                  ? `🔒 ${wait}s`
+                  : '🔒 Confirm'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity

@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
+  Linking,
   PermissionsAndroid,
   Platform,
   ScrollView,
@@ -239,6 +240,13 @@ const AssistantScreen = ({session}: {session: Session}) => {
       return;
     }
     const action = pending;
+    // A shop order is paid in PayPal's own checkout page.
+    if (action.type === 'checkout' && action.url) {
+      setPending(null);
+      playSound('request_sent');
+      await Linking.openURL(action.url);
+      return;
+    }
     setBusy(true);
     try {
       const reply = await confirmWithSecurity(account.token, action);

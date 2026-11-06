@@ -21,6 +21,7 @@ import HistoryScreen from './src/screens/HistoryScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import SendScreen from './src/screens/SendScreen';
+import ShopScreen from './src/screens/ShopScreen';
 import {playSound} from './src/native';
 import {Account, LiveAlert, Session, setUpPhoneSecurity} from './src/session';
 import {colors} from './src/theme';
@@ -31,6 +32,7 @@ const ALERT_SOUNDS: Record<string, string> = {
   payment_received: 'money_received',
   refund_done: 'money_received',
   payment_sent: 'payment_sent',
+  order_paid: 'payment_sent',
   payment_failed: 'warning',
   dispute: 'warning',
   autopay: 'request_sent',
@@ -301,6 +303,8 @@ const App = () => {
         return <AssistantScreen session={session} />;
       case 'send':
         return <SendScreen session={session} />;
+      case 'shop':
+        return <ShopScreen session={session} />;
       case 'history':
         return <HistoryScreen session={session} />;
       case 'profile':
