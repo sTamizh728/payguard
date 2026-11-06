@@ -316,3 +316,11 @@ def test_paypal_item_order_totals_match(monkeypatch):
         "name": "Mug", "quantity": "3", "unit_amount": {"currency_code": "USD", "value": "12.00"},
         "category": "PHYSICAL_GOODS",
     }
+
+
+def test_phone_orders_flag(world, monkeypatch):
+    monkeypatch.setattr(settings, "twilio_phone_number", None)
+    assert world.client.get("/api/shop/products").json()["phone_orders"] is False
+    monkeypatch.setattr(settings, "twilio_phone_number", "+15550001111")
+    body = world.client.get("/api/shop/products").json()
+    assert body["phone_orders"] is True and body["phone_number"] == "+15550001111"

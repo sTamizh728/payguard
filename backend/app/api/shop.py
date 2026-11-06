@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.core.security import get_current_user
 from app.models.user import User
 from app.services import shop_service
@@ -19,7 +20,12 @@ class ClaimRequest(BaseModel):
 
 @router.get("/products")
 def products(current_user: User = Depends(get_current_user)):
-    return {"products": [shop_service.public(p) for p in shop_service.PRODUCTS]}
+    return {
+        "products": [shop_service.public(p) for p in shop_service.PRODUCTS],
+        # Phone ordering only works once a Twilio number is set up.
+        "phone_orders": bool(settings.twilio_auth_token and settings.twilio_phone_number),
+        "phone_number": settings.twilio_phone_number if settings.twilio_auth_token else None,
+    }
 
 
 @router.post("/orders")
