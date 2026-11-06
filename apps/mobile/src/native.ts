@@ -18,8 +18,21 @@ const Native = NativeModules.PayGuardNative as
       playSound(name: string): void;
       speak(text: string, language: string): Promise<boolean>;
       stopSpeaking(): void;
+      saveSecret(name: string, value: string): Promise<boolean>;
+      loadSecret(name: string): Promise<string | null>;
+      deleteSecret(name: string): Promise<boolean>;
     }
   | undefined;
+
+// The phone's long-lasting login, encrypted by the Android Keystore.
+const LOGIN_KEY = 'payguard_login';
+export const saveLogin = async (refreshToken: string) => {
+  await Native?.saveSecret(LOGIN_KEY, refreshToken);
+};
+export const loadLogin = async () => (Native ? Native.loadSecret(LOGIN_KEY) : null);
+export const forgetLogin = async () => {
+  await Native?.deleteSecret(LOGIN_KEY);
+};
 
 export type SoundName =
   | 'payment_sent'

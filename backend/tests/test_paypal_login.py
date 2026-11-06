@@ -30,7 +30,9 @@ def clean_stores():
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    # Login keys are tested in test_refresh_tokens.py; never touch the real database here.
+    monkeypatch.setattr(auth_api, "issue_refresh_token", lambda user_id: f"refresh-for-{user_id}")
     app = FastAPI()
     app.include_router(auth_api.router)
     return TestClient(app, follow_redirects=False)

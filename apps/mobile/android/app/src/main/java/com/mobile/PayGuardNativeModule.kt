@@ -175,6 +175,64 @@ class PayGuardNativeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  // ---------- encrypted storage (the login stays until logout) ----------
+
+  private val storageAlias = "payguard_storage_key"
+  private val prefs by lazy { reactContext.getSharedPreferences("payguard_secure", android.content.Context.MODE_PRIVATE) }
+
+  private fun storageKey(): javax.crypto.SecretKey {
+    val keyStore = loadKeyStore()
+    (keyStore.getKey(storageAlias, null) as? javax.crypto.SecretKey)?.let { return it }
+    val generator = javax.crypto.KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+    generator.init(
+      KeyGenParameterSpec.Builder(storageAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+        .setKeySize(256)
+        .build(),
+    )
+    return generator.generateKey()
+  }
+
+  /** Encrypt with a key that never leaves the phone's secure hardware. */
+  @ReactMethod
+  fun saveSecret(name: String, value: String, promise: Promise) {
+    try {
+      val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+      cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, storageKey())
+      val sealed = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+      prefs.edit().putString(name, Base64.encodeToString(sealed, Base64.NO_WRAP)).apply()
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("storage_error", "Could not save securely.", error)
+    }
+  }
+
+  @ReactMethod
+  fun loadSecret(name: String, promise: Promise) {
+    try {
+      val stored = prefs.getString(name, null) ?: return promise.resolve(null)
+      val sealed = Base64.decode(stored, Base64.NO_WRAP)
+      val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+      cipher.init(
+        javax.crypto.Cipher.DECRYPT_MODE,
+        storageKey(),
+        javax.crypto.spec.GCMParameterSpec(128, sealed.copyOfRange(0, 12)),
+      )
+      promise.resolve(String(cipher.doFinal(sealed.copyOfRange(12, sealed.size)), Charsets.UTF_8))
+    } catch (error: Exception) {
+      // Unreadable (e.g. app data restored on another phone): treat as logged out.
+      prefs.edit().remove(name).apply()
+      promise.resolve(null)
+    }
+  }
+
+  @ReactMethod
+  fun deleteSecret(name: String, promise: Promise) {
+    prefs.edit().remove(name).apply()
+    promise.resolve(true)
+  }
+
   // ---------- sounds ----------
 
   // PayGuard's own chimes (res/raw/pg_*.wav, made by tools/make_sounds.py).
