@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
+  AppState,
   Linking,
   PermissionsAndroid,
   Platform,
@@ -21,14 +22,12 @@ import {
 
 import {api, AssistantReply, PendingAction} from '../api';
 import ConfirmBox from '../components/ConfirmBox';
-import {playSound, speak, stopSpeaking} from '../native';
+import {LiveEvent, liveSay, muteLive, startLive} from '../live';
+import {playSound} from '../native';
 import {confirmWithSecurity, Session, t} from '../session';
 import {colors, ui} from '../theme';
 
 type Line = {from: 'you' | 'payguard'; text: string};
-
-// Saying one of these in live mode ends the conversation.
-const STOP_WORDS = ['stop', 'stop listening', 'exit', 'bye', 'நிறுத்து', 'போதும்'];
 
 const requestMicrophone = async () => {
   if (Platform.OS !== 'android') {
@@ -55,48 +54,31 @@ const AssistantScreen = ({session}: {session: Session}) => {
   const [live, setLive] = useState(false);
   const [voiceNote, setVoiceNote] = useState('');
 
-  const liveRef = useRef(false);
   const busyRef = useRef(false);
-  const errorsInRow = useRef(0);
+  const stopLiveRef = useRef<(() => void) | null>(null);
+  // Live turn being built: each new turn starts a new pair of lines.
+  const turnOpen = useRef({you: false, payguard: false});
   const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
-  const sendRef = useRef<(text: string) => void>(() => {});
 
-  const language = tamil ? 'ta' : 'en';
+  const add = (line: Line) => setLog(current => [...current, line].slice(-40));
 
-  const add = (line: Line) => setLog(current => [...current, line].slice(-30));
-
-  const listen = useCallback(async () => {
-    try {
-      await setRecognitionLanguage(tamil ? 'ta-IN' : 'en-US');
-      await startListening();
-    } catch (error) {
-      setListening(false);
-      setVoiceNote(error instanceof Error ? error.message : 'The microphone could not start.');
-    }
-  }, [tamil]);
-
-  /** Say the reply out loud. With TalkBack on, TalkBack reads it instead. */
-  const sayOut = useCallback(
-    async (text: string) => {
-      if (await AccessibilityInfo.isScreenReaderEnabled()) {
-        AccessibilityInfo.announceForAccessibility(text);
-        // Give TalkBack time to finish before the microphone opens again.
-        await new Promise<void>(resolve => setTimeout(resolve, Math.min(15000, 1500 + text.length * 65)));
-        return;
+  /** Update the last line of this speaker in the current live turn, or add one. */
+  const liveLine = (from: Line['from'], text: string, append: boolean) =>
+    setLog(current => {
+      const lines = [...current];
+      if (turnOpen.current[from]) {
+        for (let i = lines.length - 1; i >= 0; i--) {
+          if (lines[i].from === from) {
+            lines[i] = {from, text: append ? lines[i].text + text : text};
+            return lines;
+          }
+        }
       }
-      await speak(text, language);
-    },
-    [language],
-  );
+      turnOpen.current[from] = true;
+      return [...lines, {from, text}].slice(-40);
+    });
 
-  const endLive = useCallback(() => {
-    liveRef.current = false;
-    setLive(false);
-    stopSpeaking();
-    stopListening().catch(() => {});
-    setListening(false);
-    playSound('stopped');
-  }, []);
+  // ---------- typed / tap-to-talk chat ----------
 
   const send = useCallback(
     async (raw: string) => {
@@ -104,21 +86,12 @@ const AssistantScreen = ({session}: {session: Session}) => {
       if (!message || !account || busyRef.current) {
         return;
       }
-
-      if (liveRef.current && STOP_WORDS.includes(message.toLowerCase())) {
-        endLive();
-        add({from: 'payguard', text: t(tamil, 'Okay, live conversation ended.', 'சரி, நேரடி உரையாடல் முடிந்தது.')});
-        return;
-      }
-
       busyRef.current = true;
       setBusy(true);
       setInput('');
       add({from: 'you', text: message});
-
-      let reply: AssistantReply | null = null;
       try {
-        reply = await api<AssistantReply>('/api/chat', account.token, {body: {message}});
+        const reply = await api<AssistantReply>('/api/chat', account.token, {body: {message}});
         add({from: 'payguard', text: reply.reply});
         setPending(reply.pending_action);
         playSound(
@@ -135,23 +108,9 @@ const AssistantScreen = ({session}: {session: Session}) => {
         busyRef.current = false;
         setBusy(false);
       }
-
-      if (liveRef.current && reply) {
-        await sayOut(reply.reply);
-        // Money needs the fingerprint / PIN: stop listening until it is done.
-        if (reply.pending_action) {
-          return;
-        }
-        if (liveRef.current) {
-          playSound('listening');
-          listen();
-        }
-      }
     },
-    [account, tamil, session, sayOut, listen, endLive],
+    [account, session],
   );
-
-  sendRef.current = send;
 
   useEffect(() => {
     const subs = [
@@ -160,42 +119,19 @@ const AssistantScreen = ({session}: {session: Session}) => {
         setVoiceNote('');
       }),
       addEventListener('onSpeechEnd', () => setListening(false)),
-      addEventListener('onSpeechPartialResults', event => {
-        if (event.value) {
-          setInput(event.value);
-        }
-      }),
-      addEventListener('onSpeechResults', event => {
-        errorsInRow.current = 0;
-        const text = event.value ?? '';
-        if (liveRef.current) {
-          sendRef.current(text); // live mode: send by itself
-        } else {
-          setInput(text); // tap-to-talk: check it, then tap Send
-        }
-      }),
+      addEventListener('onSpeechPartialResults', event => event.value && setInput(event.value)),
+      // Tap-to-talk: put the words in the box; the person checks them and taps Send.
+      addEventListener('onSpeechResults', event => setInput(event.value ?? '')),
       addEventListener('onSpeechError', event => {
         setListening(false);
-        if (liveRef.current && errorsInRow.current < 3) {
-          // Silence or a missed word: keep the conversation going.
-          errorsInRow.current += 1;
-          setTimeout(() => liveRef.current && listen(), 600);
-          return;
-        }
-        if (liveRef.current) {
-          endLive();
-        }
         setVoiceNote(event.message || 'I could not hear you.');
       }),
     ];
-
     return () => {
       subs.forEach(sub => sub.remove());
-      liveRef.current = false;
-      stopSpeaking();
       destroy().catch(() => {});
     };
-  }, [listen, endLive]);
+  }, []);
 
   const tapToTalk = async () => {
     if (listening) {
@@ -207,33 +143,102 @@ const AssistantScreen = ({session}: {session: Session}) => {
       return;
     }
     playSound('listening');
-    listen();
+    try {
+      await setRecognitionLanguage(tamil ? 'ta-IN' : 'en-US');
+      await startListening();
+    } catch (error) {
+      setVoiceNote(error instanceof Error ? error.message : 'The microphone could not start.');
+    }
   };
+
+  // ---------- Gemini Live: a real two-way voice conversation ----------
+
+  const endLive = useCallback((note?: string) => {
+    stopLiveRef.current?.();
+    stopLiveRef.current = null;
+    setLive(false);
+    playSound('stopped');
+    AccessibilityInfo.announceForAccessibility(note || 'Live conversation off.');
+    if (note) {
+      setVoiceNote(note);
+    }
+  }, []);
+
+  const onLiveEvent = useCallback(
+    (event: LiveEvent) => {
+      switch (event.type) {
+        case 'listening':
+          playSound('listening');
+          AccessibilityInfo.announceForAccessibility('Live conversation on. Speak now.');
+          break;
+        case 'you':
+          liveLine('you', event.text ?? '', false);
+          break;
+        case 'payguard':
+          liveLine('payguard', event.text ?? '', true);
+          break;
+        case 'action':
+          if (event.pending_action) {
+            // Money waits for the fingerprint / PayPal: stop listening until then.
+            muteLive(true);
+            setPending(event.pending_action);
+            playSound(event.pending_action.warnings?.length ? 'warning' : 'confirm_needed');
+          } else if (event.event) {
+            playSound(event.event);
+          }
+          break;
+        case 'turn_complete':
+          turnOpen.current = {you: false, payguard: false};
+          break;
+        case 'end':
+          endLive(event.message);
+          break;
+        case 'closed':
+          if (stopLiveRef.current) {
+            endLive();
+          }
+          break;
+      }
+    },
+    [endLive],
+  );
 
   const toggleLive = async () => {
     if (live) {
       endLive();
       return;
     }
+    if (!account) {
+      return;
+    }
     if (!(await requestMicrophone())) {
       setVoiceNote('Please allow the microphone to talk to PayGuard.');
       return;
     }
-    liveRef.current = true;
-    errorsInRow.current = 0;
-    setLive(true);
-    const hello = t(
-      tamil,
-      'Live conversation on. What would you like to do?',
-      'நேரடி உரையாடல் தொடங்கியது. என்ன செய்ய வேண்டும்?',
-    );
-    add({from: 'payguard', text: hello});
-    await sayOut(hello);
-    if (liveRef.current) {
-      playSound('listening');
-      listen();
+    setVoiceNote('');
+    turnOpen.current = {you: false, payguard: false};
+    try {
+      stopLiveRef.current = startLive(account.token, onLiveEvent);
+      setLive(true);
+    } catch (error) {
+      setVoiceNote(error instanceof Error ? error.message : 'Live voice could not start.');
     }
   };
+
+  // Privacy: never leave the microphone open in the background.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state !== 'active' && stopLiveRef.current) {
+        endLive();
+      }
+    });
+    return () => {
+      sub.remove();
+      stopLiveRef.current?.();
+    };
+  }, [endLive]);
+
+  // ---------- confirm / cancel (both modes) ----------
 
   const confirm = async () => {
     if (!pending || !account) {
@@ -243,6 +248,7 @@ const AssistantScreen = ({session}: {session: Session}) => {
     // A shop order is paid in PayPal's own checkout page.
     if (action.type === 'checkout' && action.url) {
       setPending(null);
+      muteLive(false);
       playSound('request_sent');
       await Linking.openURL(action.url);
       return;
@@ -252,12 +258,9 @@ const AssistantScreen = ({session}: {session: Session}) => {
       const reply = await confirmWithSecurity(account.token, action);
       setPending(reply.pending_action);
       add({from: 'payguard', text: reply.reply});
-      if (liveRef.current) {
-        await sayOut(reply.reply);
-        if (liveRef.current) {
-          playSound('listening');
-          listen();
-        }
+      if (live && !reply.pending_action) {
+        liveSay(reply.reply); // PayGuard says the result out loud
+        muteLive(false);
       }
     } catch (error) {
       // Cancelled prompt: the payment is still waiting; nothing was sent.
@@ -276,8 +279,13 @@ const AssistantScreen = ({session}: {session: Session}) => {
     try {
       const reply = await api<AssistantReply>('/api/chat/cancel', account.token, {body: {}});
       add({from: 'payguard', text: reply.reply});
+      if (live) {
+        liveSay(reply.reply);
+      }
     } catch (error) {
       add({from: 'payguard', text: session.handleError(error)});
+    } finally {
+      muteLive(false);
     }
   };
 
@@ -314,7 +322,7 @@ const AssistantScreen = ({session}: {session: Session}) => {
           <View
             key={index}
             accessible
-            accessibilityLiveRegion={index === log.length - 1 && line.from === 'payguard' ? 'polite' : 'none'}
+            accessibilityLiveRegion={!live && index === log.length - 1 && line.from === 'payguard' ? 'polite' : 'none'}
             style={[styles.bubble, line.from === 'you' ? styles.you : styles.payguard]}>
             <Text style={styles.from}>{line.from === 'you' ? t(tamil, 'You', 'நீங்கள்') : 'PayGuard'}</Text>
             <Text style={styles.text}>{line.text}</Text>
@@ -331,9 +339,9 @@ const AssistantScreen = ({session}: {session: Session}) => {
         ) : null}
         {live && (
           <Text style={styles.liveNote} accessibilityLiveRegion="polite">
-            {listening
-              ? t(tamil, '🔴 Listening... say "stop" to end', '🔴 கேட்கிறேன்... முடிக்க "நிறுத்து" சொல்லுங்கள்')
-              : t(tamil, 'Live conversation on', 'நேரடி உரையாடல் இயக்கத்தில்')}
+            {pending
+              ? t(tamil, '⏸ Paused: confirm on screen', '⏸ நிறுத்தம்: திரையில் உறுதிப்படுத்துங்கள்')
+              : t(tamil, '🔴 Live with Gemini: just talk. Tap again to end.', '🔴 Gemini உடன் நேரடி: பேசுங்கள். முடிக்க மீண்டும் தட்டவும்.')}
           </Text>
         )}
         <View style={styles.inputRow}>
