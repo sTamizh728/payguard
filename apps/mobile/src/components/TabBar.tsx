@@ -3,7 +3,7 @@ import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 
 import {colors} from '../theme';
 
-export type TabName = 'home' | 'assistant' | 'send' | 'history' | 'profile';
+export type TabName = 'home' | 'assistant' | 'shop' | 'send' | 'history' | 'profile';
 
 type Props = {
   current: TabName;
@@ -13,7 +13,8 @@ type Props = {
 
 const TABS: {name: TabName; icon: string; en: string; ta: string}[] = [
   {name: 'home', icon: '🏠', en: 'Home', ta: 'முகப்பு'},
-  {name: 'assistant', icon: '💬', en: 'Assistant', ta: 'உதவியாளர்'},
+  {name: 'assistant', icon: '💬', en: 'Chat', ta: 'அரட்டை'},
+  {name: 'shop', icon: '🛒', en: 'Shop', ta: 'கடை'},
   {name: 'send', icon: '💸', en: 'Send', ta: 'அனுப்பு'},
   {name: 'history', icon: '🧾', en: 'History', ta: 'வரலாறு'},
   {name: 'profile', icon: '👤', en: 'Profile', ta: 'சுயவிவரம்'},

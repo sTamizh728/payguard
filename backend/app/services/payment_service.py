@@ -1,4 +1,6 @@
 
+from decimal import Decimal
+
 import httpx
 
 from app.core.config import settings
@@ -378,3 +380,68 @@ async def get_paypal_balances() -> list[dict]:
         }
         for b in response.json().get("balances", [])
     ]
+
+
+async def create_paypal_item_order(
+    name: str,
+    unit_price: Decimal,
+    quantity: int,
+    reference: str,
+) -> dict:
+    """
+    A PayPal order for one product line. PayPal refuses the order unless the
+    item total equals unit price x quantity exactly, so all figures come from
+    the same Decimal values.
+    """
+    total = (unit_price * quantity).quantize(Decimal("0.01"))
+    money = lambda value: {"currency_code": "USD", "value": f"{value:.2f}"}  # noqa: E731
+
+    token_data = await get_access_token()
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        try:
+            response = await client.post(
+                f"{settings.paypal_base_url.rstrip('/')}/v2/checkout/orders",
+                headers={
+                    "Authorization": f"Bearer {token_data['access_token']}",
+                    "Content-Type": "application/json",
+                    "PayPal-Request-Id": f"create-{reference}",
+                },
+                json={
+                    "intent": "CAPTURE",
+                    "purchase_units": [{
+                        "reference_id": reference,
+                        "custom_id": reference,
+                        "description": f"PayGuard Shop: {name}",
+                        "amount": {**money(total), "breakdown": {"item_total": money(total)}},
+                        "items": [{
+                            "name": name[:127],
+                            "quantity": str(quantity),
+                            "unit_amount": money(unit_price),
+                            "category": "PHYSICAL_GOODS",
+                        }],
+                    }],
+                    "payment_source": {"paypal": {"experience_context": {
+                        "user_action": "PAY_NOW",
+                        "shipping_preference": "NO_SHIPPING",
+                        "brand_name": "PayGuard Shop",
+                        "return_url": f"{settings.public_base_url}/api/paypal/payment-success",
+                        "cancel_url": f"{settings.public_base_url}/api/paypal/payment-cancel",
+                    }}},
+                },
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"PayPal order failed (HTTP {exc.response.status_code}).") from None
+        except httpx.RequestError:
+            raise RuntimeError("Could not reach PayPal.") from None
+
+    data = response.json()
+    approval_url = next(
+        (link["href"] for link in data.get("links", []) if link.get("rel") == "payer-action"),
+        None,
+    )
+    if not approval_url:
+        raise RuntimeError("PayPal did not return a checkout link.")
+
+    return {"order_id": data["id"], "approval_url": approval_url}

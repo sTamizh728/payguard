@@ -12,9 +12,14 @@ from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.security import router as security_router
 from app.api.webhooks import router as webhooks_router
+from app.api.shop import router as shop_router
+from app.api.phone import router as phone_router
+from app.services import shop_service, webhook_service
 from decimal import Decimal
+from html import escape
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from sqlalchemy import text
 
 app = FastAPI(
@@ -50,6 +55,8 @@ app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(security_router)
 app.include_router(webhooks_router)
+app.include_router(shop_router)
+app.include_router(phone_router)
 
 @app.get("/api/paypal/payment-success")
 async def paypal_payment_success(token: str):
@@ -79,27 +86,43 @@ async def paypal_payment_success(token: str):
                     payer_id=result.get("payer_id"),
                 )
 
-        return {
-            "payment": "successful",
-            "order_id": result["order_id"],
-            "paypal_status": result["status"],
-            "captures": result["captures"],
-            "message": "PayPal payment captured successfully!",
-        }
+        # A PayGuard Shop order: mark it paid and tell the buyer in the app.
+        order = shop_service.mark_paid(result["order_id"])
+        if order is not None and order.user_id is not None:
+            webhook_service.add_notification(
+                order.user_id,
+                "order_paid",
+                f"Order {order.code} is paid: {order.quantity} x "
+                f"{shop_service.get_product(order.product_id)['name']}, ${order.total:.2f}.",
+            )
 
-    except RuntimeError as error:
-        raise HTTPException(
-            status_code=502,
-            detail=str(error),
+        return _result_page(
+            "Payment complete",
+            "Thank you! Your PayPal payment is done. You can go back to PayGuard now.",
+        )
+
+    except RuntimeError:
+        return _result_page(
+            "Payment not finished",
+            "PayPal could not complete this payment. Nothing was charged twice. "
+            "Please go back to PayGuard and try again.",
         )
 
 
 @app.get("/api/paypal/payment-cancel")
 async def paypal_payment_cancel():
-    return {
-        "payment": "cancelled",
-        "message": "The buyer cancelled the PayPal checkout.",
-    }
+    return _result_page("Payment cancelled", "No money was taken. You can go back to PayGuard.")
+
+
+def _result_page(title: str, message: str) -> HTMLResponse:
+    """A small page the phone browser shows after PayPal checkout."""
+    return HTMLResponse(
+        f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)}</title></head>
+<body style="font-family:sans-serif;padding:24px;font-size:20px;line-height:1.5">
+<h1 style="font-size:26px">{escape(title)}</h1><p>{escape(message)}</p></body></html>""",
+        headers={"Cache-Control": "no-store"},
+    )
 
 @app.get("/")
 async def root():

@@ -11,6 +11,8 @@ export type PendingAction = {
   // Scam guard: warning signs and the cooling-off wait before Confirm works.
   warnings?: string[];
   wait_seconds?: number;
+  // type 'checkout': PayPal's own checkout page pays, not the fingerprint.
+  url?: string;
 };
 
 export type AssistantReply = {

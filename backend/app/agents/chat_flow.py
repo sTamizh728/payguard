@@ -15,7 +15,7 @@ from app.agents import guardrails
 from app.agents.guardrails import MAX_TEXT
 from app.core.config import settings
 from app.models.user import User
-from app.services import contacts, payout_service, refund_service, scam_guard, security_service
+from app.services import contacts, payout_service, refund_service, scam_guard, security_service, shop_service
 
 MAX_STRIKES = 2             # unsafe requests before refunds are locked
 LOCK_SECONDS = 10 * 60      # how long refunds stay locked
@@ -205,6 +205,9 @@ async def handle_message(user: User, text: str, understand) -> ChatReply:
     if action == "multiple":
         return ChatReply("Please ask for one refund at a time.")
 
+    if action == "buy_product":
+        return await _buy(user, intent, text)
+
     if role == "customer":
         # Customer tools only. Owner actions are never run for a customer,
         # whatever the AI answers.
@@ -254,6 +257,44 @@ def _said_int(value, text: str) -> int | None:
     except (TypeError, ValueError):
         return None
     return number if guardrails.user_said_id(number, text) else None
+
+
+# ---------- shop (anyone logged in; PayPal checkout is the payment check) ----------
+
+async def _buy(user: User, intent: dict, text: str) -> ChatReply:
+    # The product must be in the person's own words, never the AI's guess.
+    found = shop_service.products_said(text)
+    if len(found) != 1:
+        names = ", ".join(p["name"] for p in shop_service.PRODUCTS)
+        return ChatReply(f"Which one would you like? We have: {names}.")
+
+    quantity = 1
+    asked = intent.get("quantity")
+    if asked is not None:
+        try:
+            asked = int(asked)
+        except (TypeError, ValueError):
+            asked = None
+        if asked is None or not guardrails.user_said_number(asked, text):
+            return ChatReply("How many would you like?")
+        quantity = asked
+
+    try:
+        order = await shop_service.create_order(found[0]["id"], quantity, channel="app", user_id=user.id)
+    except shop_service.ShopError as error:
+        return ChatReply(str(error), event="failed")
+
+    summary = f"{quantity} x {found[0]['name']}, ${order['total']:.2f}"
+    return ChatReply(
+        f"Your order {order['code']} is ready: {summary}. Tap Pay with PayPal to finish.",
+        pending_action={
+            "id": order["code"],
+            "type": "checkout",
+            "summary": summary,
+            "url": order["approval_url"],
+        },
+        event="request_sent",
+    )
 
 
 # ---------- customer ----------

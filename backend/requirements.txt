@@ -31,3 +31,5 @@ argon2-cffi==25.1.0
 requests==2.32.3
 google-genai==2.34.0
 cryptography==50.0.2
+twilio==9.13.0
+python-multipart==0.0.33
