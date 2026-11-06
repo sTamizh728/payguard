@@ -462,3 +462,35 @@ def test_checkout_returns_into_the_app(monkeypatch):
     context = json.loads(seen[0].content)["payment_source"]["paypal"]["experience_context"]
     assert context["return_url"] == "accessiblecommerce://shop/paid"
     assert context["cancel_url"] == "accessiblecommerce://shop/cancel"
+
+
+# ---- smarter search (no network: the catalog call is faked) ----
+
+def test_search_falls_back_to_words_and_categories(monkeypatch):
+    asked = []
+
+    async def fake_get(path, params=None):
+        asked.append((path, (params or {}).get("q")))
+        if path == "/products/category/smartphones":
+            return {"products": [{"id": 1, "title": "iPhone 9", "price": 549, "rating": 4.7, "stock": 9}]}
+        return {"products": []}
+
+    monkeypatch.setattr(catalog_service, "_get", fake_get)
+    results = asyncio.run(catalog_service.search("show me cheap mobiles"))
+
+    assert [r["title"] for r in results] == ["iPhone 9"]
+    assert asked[0] == ("/products/search", "show me cheap mobiles")
+    assert ("/products/search", "mobile") in asked  # plural made singular, stop words dropped
+    assert ("/products/search", "show") not in asked and ("/products/search", "cheap") not in asked
+
+
+def test_search_stops_early_when_exact_words_find_enough(monkeypatch):
+    asked = []
+
+    async def fake_get(path, params=None):
+        asked.append(path)
+        return {"products": [{"id": i, "title": f"P{i}", "price": 1, "rating": 4, "stock": 1} for i in range(3)]}
+
+    monkeypatch.setattr(catalog_service, "_get", fake_get)
+    assert len(asyncio.run(catalog_service.search("phone"))) == 3
+    assert asked == ["/products/search"]
