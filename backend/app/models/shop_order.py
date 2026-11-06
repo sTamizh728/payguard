@@ -24,6 +24,8 @@ class ShopOrder(Base):
     product_id: Mapped[str] = mapped_column(String(30), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     total: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    # What was bought, e.g. '2 x Apple iPhone Charger, 1 x ...'.
+    summary: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     paypal_order_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     approval_url: Mapped[str] = mapped_column(String(500), nullable=False)

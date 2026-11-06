@@ -7,15 +7,18 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.database import SessionLocal
+from app.models.cart_item import CartItem
 from app.models.shop_order import ShopOrder
-from app.services import payment_service
+from app.services import catalog_service, payment_service
 
 MAX_QUANTITY = 10
-MAX_TOTAL = Decimal("100.00")
+MAX_TOTAL = Decimal("100.00")  # phone orders
+CART_MAX_TOTAL = Decimal("1000.00")  # app / chat cart
+CART_MAX_LINES = 10
 CLAIM_MINUTES = 30  # a phone order code can be claimed in the app this long
 
 # Keypad number on the phone menu = position in this list + 1.
@@ -80,9 +83,7 @@ async def create_order(product_id: str, quantity: int, channel: str, user_id: in
 
     try:
         paypal = await payment_service.create_paypal_item_order(
-            name=product["name"],
-            unit_price=product["price"],
-            quantity=quantity,
+            [(product["name"], product["price"], quantity)],
             reference=f"shop-{code}-{secrets.token_hex(4)}",
         )
     except RuntimeError:
@@ -96,6 +97,7 @@ async def create_order(product_id: str, quantity: int, channel: str, user_id: in
             product_id=product["id"],
             quantity=quantity,
             total=total,
+            summary=f"{quantity} x {product['name']}",
             paypal_order_id=paypal["order_id"],
             approval_url=paypal["approval_url"],
             status="CREATED",
@@ -154,11 +156,12 @@ def claim_phone_order(code: str, user_id: int) -> dict:
 
 
 def _view(order: ShopOrder) -> dict:
-    product = get_product(order.product_id) or {"name": order.product_id, "name_ta": order.product_id}
+    product = get_product(order.product_id) or {}
+    summary = order.summary or product.get("name") or order.product_id
     return {
         "code": order.code,
-        "name": product["name"],
-        "name_ta": product["name_ta"],
+        "name": summary,
+        "name_ta": product.get("name_ta") or summary,
         "quantity": order.quantity,
         "total": f"{Decimal(str(order.total)):.2f}",
         "status": order.status,
@@ -177,3 +180,97 @@ def list_orders(user_id: int, limit: int = 20) -> list[dict]:
             .limit(limit)
         ).all()
         return [_view(o) for o in orders]
+
+
+# ---------- cart (searchable catalog) ----------
+
+async def set_cart_quantity(user_id: int, product_id: int, quantity: int) -> None:
+    """Set how many of a product are in the cart; 0 removes it."""
+    if not 0 <= quantity <= MAX_QUANTITY:
+        raise ShopError(f"Please choose between 1 and {MAX_QUANTITY}.")
+    if quantity:
+        try:
+            product = await catalog_service.get_product(product_id)  # must exist
+        except catalog_service.CatalogError as error:
+            raise ShopError(str(error)) from None
+        if product["stock"] < quantity:
+            raise ShopError(f"Only {product['stock']} left in stock.")
+
+    with SessionLocal() as db:
+        item = db.scalar(select(CartItem).where(CartItem.user_id == user_id, CartItem.product_id == product_id))
+        if quantity == 0:
+            if item:
+                db.delete(item)
+        elif item:
+            item.quantity = quantity
+        else:
+            lines = db.scalar(select(func.count(CartItem.id)).where(CartItem.user_id == user_id))
+            if lines >= CART_MAX_LINES:
+                raise ShopError(f"Your cart can hold up to {CART_MAX_LINES} different products.")
+            db.add(CartItem(user_id=user_id, product_id=product_id, quantity=quantity))
+        db.commit()
+
+
+async def get_cart(user_id: int) -> dict:
+    """The cart with current prices from the catalog."""
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(CartItem.product_id, CartItem.quantity)
+            .where(CartItem.user_id == user_id)
+            .order_by(CartItem.id)
+        ).all()
+
+    items = []
+    for product_id, quantity in rows:
+        try:
+            product = await catalog_service.get_product(product_id)
+        except catalog_service.CatalogError as error:
+            raise ShopError(str(error)) from None
+        items.append({
+            "product_id": product_id,
+            "title": product["title"],
+            "price": product["price"],
+            "quantity": quantity,
+            "line_total": (product["price"] * quantity).quantize(Decimal("0.01")),
+        })
+    total = sum((i["line_total"] for i in items), Decimal("0.00"))
+    return {"items": items, "total": total}
+
+
+async def checkout_cart(user_id: int) -> dict:
+    """Turn the cart into one PayPal order. The cart is emptied once the order exists."""
+    cart = await get_cart(user_id)
+    if not cart["items"]:
+        raise ShopError("Your cart is empty.")
+    if cart["total"] > CART_MAX_TOTAL:
+        raise ShopError(f"For your safety, one order can be up to ${CART_MAX_TOTAL:.0f}.")
+
+    with SessionLocal() as db:
+        code = _new_code(db)
+
+    lines = [(i["title"], i["price"], i["quantity"]) for i in cart["items"]]
+    try:
+        paypal = await payment_service.create_paypal_item_order(
+            lines, reference=f"shop-{code}-{secrets.token_hex(4)}"
+        )
+    except RuntimeError:
+        raise ShopError("PayPal could not create the order right now.") from None
+
+    units = sum(i["quantity"] for i in cart["items"])
+    summary = ", ".join(f"{i['quantity']} x {i['title']}" for i in cart["items"])[:300]
+
+    with SessionLocal() as db:
+        db.add(ShopOrder(
+            code=code, user_id=user_id, channel="app", product_id="cart", quantity=units,
+            total=cart["total"], summary=summary, paypal_order_id=paypal["order_id"],
+            approval_url=paypal["approval_url"], status="CREATED",
+        ))
+        for item in db.scalars(select(CartItem).where(CartItem.user_id == user_id)).all():
+            db.delete(item)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise ShopError("Please try again.") from None
+
+    return {"code": code, "total": cart["total"], "summary": summary, "approval_url": paypal["approval_url"]}

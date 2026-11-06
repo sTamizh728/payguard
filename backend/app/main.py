@@ -50,6 +50,9 @@ with engine.begin() as connection:
         "CREATE INDEX IF NOT EXISTS ix_payment_transactions_payer_email "
         "ON payment_transactions (payer_email)"
     ))
+    connection.execute(text(
+        "ALTER TABLE shop_orders ADD COLUMN IF NOT EXISTS summary VARCHAR(300)"
+    ))
 
 app.include_router(auth_router)
 app.include_router(chat_router)
@@ -92,8 +95,8 @@ async def paypal_payment_success(token: str):
             webhook_service.add_notification(
                 order.user_id,
                 "order_paid",
-                f"Order {order.code} is paid: {order.quantity} x "
-                f"{shop_service.get_product(order.product_id)['name']}, ${order.total:.2f}.",
+                f"Order {order.code} is paid: {order.summary or order.product_id}, "
+                f"${order.total:.2f}.",
             )
 
         return _result_page(

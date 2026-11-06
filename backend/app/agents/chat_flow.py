@@ -15,7 +15,7 @@ from app.agents import guardrails
 from app.agents.guardrails import MAX_TEXT
 from app.core.config import settings
 from app.models.user import User
-from app.services import contacts, payout_service, refund_service, scam_guard, security_service, shop_service
+from app.services import contacts, payout_service, refund_service, scam_guard, security_service, shop_service, catalog_service
 
 MAX_STRIKES = 2             # unsafe requests before refunds are locked
 LOCK_SECONDS = 10 * 60      # how long refunds stay locked
@@ -67,6 +67,9 @@ class ChatSession:
     strikes: int = 0          # unsafe requests seen (NOT cleared by cancel)
     locked_until: float = 0.0
     pending: PendingRefund | PendingPayout | None = None
+    # Shopping memory: product ids of the last search, and the product last described.
+    last_results: list[int] = field(default_factory=list)
+    current_product: int | None = None
 
 
 @dataclass
@@ -205,8 +208,8 @@ async def handle_message(user: User, text: str, understand) -> ChatReply:
     if action == "multiple":
         return ChatReply("Please ask for one refund at a time.")
 
-    if action == "buy_product":
-        return await _buy(user, intent, text)
+    if action in SHOP_ACTIONS:
+        return await _shop(user, session, action, intent, text)
 
     if role == "customer":
         # Customer tools only. Owner actions are never run for a customer,
@@ -261,39 +264,116 @@ def _said_int(value, text: str) -> int | None:
 
 # ---------- shop (anyone logged in; PayPal checkout is the payment check) ----------
 
-async def _buy(user: User, intent: dict, text: str) -> ChatReply:
-    # The product must be in the person's own words, never the AI's guess.
-    found = shop_service.products_said(text)
-    if len(found) != 1:
-        names = ", ".join(p["name"] for p in shop_service.PRODUCTS)
-        return ChatReply(f"Which one would you like? We have: {names}.")
+SHOP_ACTIONS = {"search_products", "product_details", "add_to_cart", "remove_from_cart", "show_cart", "checkout_cart"}
+THIS_WORDS = {"it", "this", "that", "one"}
 
-    quantity = 1
-    asked = intent.get("quantity")
-    if asked is not None:
-        try:
-            asked = int(asked)
-        except (TypeError, ValueError):
-            asked = None
-        if asked is None or not guardrails.user_said_number(asked, text):
-            return ChatReply("How many would you like?")
-        quantity = asked
 
+def _stars(rating: float) -> str:
+    return f"rated {rating:.1f} out of 5"
+
+
+async def _shop(user: User, session: ChatSession, action: str, intent: dict, text: str) -> ChatReply:
     try:
-        order = await shop_service.create_order(found[0]["id"], quantity, channel="app", user_id=user.id)
-    except shop_service.ShopError as error:
+        if action == "search_products":
+            query = str(intent.get("query") or "").strip()
+            if not query:
+                return ChatReply("What would you like to search for?")
+            results = await catalog_service.search(query)
+            session.last_results = [r["id"] for r in results]
+            session.current_product = None
+            if not results:
+                return ChatReply(f"I found nothing for {query}. Try other words.")
+            lines = " ".join(
+                f"{n}: {r['title']}, ${r['price']:.2f}, {_stars(r['rating'])}."
+                for n, r in enumerate(results[:5], start=1)
+            )
+            return ChatReply(
+                f"I found {len(results)} products for {query}. {lines} "
+                "Say a number to hear more, or add one to your cart.",
+                transactions=[catalog_service.public(r) for r in results],
+            )
+
+        if action == "product_details":
+            product_id = _result_id(session, intent.get("result_number"), text)
+            if product_id is None:
+                return ChatReply("Which result? Say its number, for example 'tell me about number 2'.")
+            p = await catalog_service.get_product(product_id)
+            session.current_product = product_id
+            reviews = " ".join(
+                f"{r['name']} gave {r['rating']} stars: {r['comment']}" for r in p["reviews"][:3]
+            ) or "No reviews yet."
+            first_sentence = p["description"].split(". ")[0].rstrip(".")
+            return ChatReply(
+                f"{p['title']}, ${p['price']:.2f}, {_stars(p['rating'])}. {first_sentence}. "
+                f"{p['stock']} in stock. {p['shipping'] or ''}. Reviews: {reviews} "
+                "Say 'add it to my cart' to buy.",
+                transactions=[catalog_service.public(p)],
+            )
+
+        if action == "add_to_cart":
+            product_id = _result_id(session, intent.get("result_number"), text)
+            if product_id is None and session.current_product and guardrails.words(text) & THIS_WORDS:
+                product_id = session.current_product
+            if product_id is None:
+                return ChatReply("Which product? Say its number from the search results.")
+            quantity = 1
+            if intent.get("quantity") is not None:
+                quantity = _said_int(intent.get("quantity"), text) or 0
+                if quantity < 1:
+                    return ChatReply("How many would you like?")
+            cart = await shop_service.get_cart(user.id)
+            already = next((i["quantity"] for i in cart["items"] if i["product_id"] == product_id), 0)
+            await shop_service.set_cart_quantity(user.id, product_id, already + quantity)
+            p = await catalog_service.get_product(product_id)
+            return await _cart_reply(user, f"Added {quantity} {p['title']} to your cart.")
+
+        if action == "remove_from_cart":
+            cart = await shop_service.get_cart(user.id)
+            number = _said_int(intent.get("item_number"), text)
+            if number is None or not 1 <= number <= len(cart["items"]):
+                return ChatReply("Which item? Say its number in your cart.")
+            item = cart["items"][number - 1]
+            await shop_service.set_cart_quantity(user.id, item["product_id"], 0)
+            return await _cart_reply(user, f"Removed {item['title']}.")
+
+        if action == "show_cart":
+            return await _cart_reply(user, "")
+
+        # checkout_cart
+        order = await shop_service.checkout_cart(user.id)
+        return ChatReply(
+            f"Your order {order['code']} is ready: total ${order['total']:.2f}. "
+            "Tap Pay with PayPal to finish.",
+            pending_action={
+                "id": order["code"],
+                "type": "checkout",
+                "summary": f"{order['summary']}, ${order['total']:.2f}",
+                "url": order["approval_url"],
+            },
+            event="request_sent",
+        )
+
+    except (shop_service.ShopError, catalog_service.CatalogError) as error:
         return ChatReply(str(error), event="failed")
 
-    summary = f"{quantity} x {found[0]['name']}, ${order['total']:.2f}"
+
+def _result_id(session: ChatSession, value, text: str) -> int | None:
+    number = _said_int(value, text)
+    if number is None or not 1 <= number <= len(session.last_results):
+        return None
+    return session.last_results[number - 1]
+
+
+async def _cart_reply(user: User, prefix: str) -> ChatReply:
+    cart = await shop_service.get_cart(user.id)
+    if not cart["items"]:
+        return ChatReply((prefix + " Your cart is empty.").strip())
+    lines = " ".join(
+        f"{n}: {i['quantity']} x {i['title']}, ${i['line_total']:.2f}."
+        for n, i in enumerate(cart["items"], start=1)
+    )
     return ChatReply(
-        f"Your order {order['code']} is ready: {summary}. Tap Pay with PayPal to finish.",
-        pending_action={
-            "id": order["code"],
-            "type": "checkout",
-            "summary": summary,
-            "url": order["approval_url"],
-        },
-        event="request_sent",
+        f"{prefix} Your cart: {lines} Total ${cart['total']:.2f}. Say 'checkout' to pay with PayPal.".strip()
     )
 
 
