@@ -18,7 +18,22 @@ type Order = {
   status: string;
   channel: string;
   approval_url: string | null;
+  created_at: string;
+  items: {title: string; price: string; quantity: number}[];
+  delivery_by: string | null;
+  paid_at: string | null;
+  transaction_id: string | null;
 };
+
+const longDate = (iso: string | null) =>
+  iso
+    ? new Date(iso).toLocaleDateString('en-GB', {
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      })
+    : '—';
 
 const stars = (rating: number) => `★ ${rating.toFixed(1)}`;
 
@@ -34,6 +49,7 @@ const ShopScreen = ({session}: {session: Session}) => {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [openReceipt, setOpenReceipt] = useState<string | null>(null);
 
   const run = async (work: () => Promise<void>) => {
     setBusy(true);
@@ -338,6 +354,11 @@ const ShopScreen = ({session}: {session: Session}) => {
                 : t(tamil, 'Waiting for payment', 'செலுத்தக் காத்திருக்கிறது')}
               {order.channel === 'phone' ? ` · ${t(tamil, 'phone order', 'தொலைபேசி ஆர்டர்')}` : ''}
             </Text>
+            {order.status === 'PAID' && order.delivery_by && (
+              <Text style={ui.body}>
+                🚚 {t(tamil, 'Expected delivery by', 'எதிர்பார்க்கும் டெலிவரி')} {longDate(order.delivery_by)}
+              </Text>
+            )}
             {order.approval_url && (
               <TouchableOpacity
                 onPress={() => openCheckout(order.approval_url as string)}
@@ -345,6 +366,49 @@ const ShopScreen = ({session}: {session: Session}) => {
                 style={ui.secondaryButton}>
                 <Text style={ui.secondaryButtonText}>{t(tamil, 'Pay now', 'இப்போது செலுத்து')}</Text>
               </TouchableOpacity>
+            )}
+            {order.status === 'PAID' && (
+              <TouchableOpacity
+                onPress={() => setOpenReceipt(openReceipt === order.code ? null : order.code)}
+                accessibilityRole="button"
+                accessibilityState={{expanded: openReceipt === order.code}}
+                style={ui.secondaryButton}>
+                <Text style={ui.secondaryButtonText}>
+                  🧾{' '}
+                  {openReceipt === order.code
+                    ? t(tamil, 'Hide receipt', 'ரசீதை மறை')
+                    : t(tamil, 'View receipt', 'ரசீதைப் பார்')}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {openReceipt === order.code && (
+              <View style={styles.receipt} accessibilityLiveRegion="polite">
+                <Text style={ui.heading} accessibilityRole="header">
+                  {t(tamil, 'Receipt', 'ரசீது')} · {t(tamil, 'Order', 'ஆர்டர்')} {order.code}
+                </Text>
+                {order.items.map((item, i) => (
+                  <Text key={i} style={ui.body}>
+                    {item.quantity} × {item.title} @ ${item.price} = $
+                    {(Number(item.price) * item.quantity).toFixed(2)}
+                  </Text>
+                ))}
+                <Text style={[styles.title, styles.receiptTotal]}>
+                  {t(tamil, 'Total paid', 'மொத்தம் செலுத்தியது')}: ${order.total} USD
+                </Text>
+                <Text style={ui.muted}>
+                  {t(tamil, 'Paid on', 'செலுத்திய நாள்')}: {longDate(order.paid_at)}
+                </Text>
+                <Text style={ui.muted}>{t(tamil, 'Paid with', 'செலுத்திய முறை')}: PayPal</Text>
+                <Text style={ui.muted} selectable>
+                  {t(tamil, 'PayPal transaction', 'PayPal பரிவர்த்தனை')}: {order.transaction_id ?? '—'}
+                </Text>
+                <Text style={ui.muted}>
+                  {t(tamil, 'Expected delivery by', 'எதிர்பார்க்கும் டெலிவரி')}: {longDate(order.delivery_by)}
+                </Text>
+                <Text style={ui.muted}>
+                  {t(tamil, 'Sold by PayGuard Shop (sandbox demo)', 'விற்பனையாளர்: PayGuard கடை (சோதனை)')}
+                </Text>
+              </View>
             )}
           </View>
         ))}
@@ -466,6 +530,19 @@ const styles = StyleSheet.create({
   paid: {
     color: colors.good,
     fontWeight: '700',
+  },
+  receipt: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderStyle: 'dashed',
+    borderRadius: 10,
+    padding: 14,
+    marginTop: 10,
+    backgroundColor: colors.card,
+  },
+  receiptTotal: {
+    marginTop: 8,
+    marginBottom: 6,
   },
 });
 

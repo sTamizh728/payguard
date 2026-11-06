@@ -50,9 +50,11 @@ with engine.begin() as connection:
         "CREATE INDEX IF NOT EXISTS ix_payment_transactions_payer_email "
         "ON payment_transactions (payer_email)"
     ))
-    connection.execute(text(
-        "ALTER TABLE shop_orders ADD COLUMN IF NOT EXISTS summary VARCHAR(300)"
-    ))
+    for column in (
+        "summary VARCHAR(300)", "items_json TEXT", "delivery_by VARCHAR(10)",
+        "paid_at TIMESTAMP WITH TIME ZONE", "transaction_id VARCHAR(50)",
+    ):
+        connection.execute(text(f"ALTER TABLE shop_orders ADD COLUMN IF NOT EXISTS {column}"))
 
 app.include_router(auth_router)
 app.include_router(chat_router)

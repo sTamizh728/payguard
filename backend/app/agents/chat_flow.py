@@ -264,7 +264,8 @@ def _said_int(value, text: str) -> int | None:
 
 # ---------- shop (anyone logged in; PayPal checkout is the payment check) ----------
 
-SHOP_ACTIONS = {"search_products", "product_details", "add_to_cart", "remove_from_cart", "show_cart", "checkout_cart"}
+SHOP_ACTIONS = {"search_products", "product_details", "add_to_cart", "remove_from_cart", "show_cart", "checkout_cart",
+                "show_orders"}
 THIS_WORDS = {"it", "this", "that", "one"}
 
 
@@ -338,6 +339,18 @@ async def _shop(user: User, session: ChatSession, action: str, intent: dict, tex
 
         if action == "show_cart":
             return await _cart_reply(user, "")
+
+        if action == "show_orders":
+            orders = shop_service.list_orders(user.id, limit=3)
+            if not orders:
+                return ChatReply("You have no shop orders yet.")
+            lines = " ".join(
+                f"Order {o['code']}: {o['name']}, ${o['total']}, "
+                + (f"paid, expected delivery by {shop_service.delivery_words(o['delivery_by'])}."
+                   if o["status"] == "PAID" else "waiting for payment.")
+                for o in orders
+            )
+            return ChatReply(f"Your latest orders. {lines}")
 
         # checkout_cart
         order = await shop_service.checkout_cart(user.id)
