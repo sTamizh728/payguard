@@ -292,8 +292,8 @@ const AssistantScreen = ({session}: {session: Session}) => {
   }
 
   const examples = account.isOwner
-    ? t(tamil, '"Send $20 to Priya", "Did any payment fail?", "Show refund requests"', '"பிரியாவுக்கு 20 டாலர் அனுப்பு", "ஏதாவது கட்டணம் தோல்வியா?"')
-    : t(tamil, '"Show my purchases", "My latest order arrived damaged"', '"என் வாங்குதல்களைக் காட்டு", "என் கடைசி ஆர்டர் உடைந்து வந்தது"');
+    ? t(tamil, '"Search headphones", "Send $20 to Priya", "Did any payment fail?"', '"ஹெட்போன் தேடு", "பிரியாவுக்கு 20 டாலர் அனுப்பு", "ஏதாவது கட்டணம் தோல்வியா?"')
+    : t(tamil, '"Search headphones", "Tell me about number 2", "Show my cart", "My latest order arrived damaged"', '"ஹெட்போன் தேடு", "என் கூடையைக் காட்டு", "என் கடைசி ஆர்டர் உடைந்து வந்தது"');
 
   return (
     <View style={styles.screen}>

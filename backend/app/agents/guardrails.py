@@ -89,7 +89,10 @@ def user_said_number(value: float, text: str) -> bool:
     return any(abs(n - value) < 0.005 for n in said_numbers(text))
 
 
-ID_KEYWORDS = r"(?:payment|request|order|purchase|number|no\.?|#)"
+ORDINALS = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
+            6: "sixth", 7: "seventh", 8: "eighth"}
+
+ID_KEYWORDS =r"(?:payment|request|order|purchase|number|no\.?|#)"
 
 
 def user_said_id(value: int, text: str) -> bool:
@@ -100,6 +103,9 @@ def user_said_id(value: int, text: str) -> bool:
     """
     digits = [int(n) for n in re.findall(r"(?<![\d.])\d+(?![\d.])", text)]
     if value in digits:
+        return True
+
+    if ORDINALS.get(value) in words(text):  # "the second one"
         return True
 
     for match in re.finditer(ID_KEYWORDS + r"\s*(?:number\s*)?((?:[a-z]+\s*){1,3})", text.lower()):

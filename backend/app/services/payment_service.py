@@ -383,18 +383,21 @@ async def get_paypal_balances() -> list[dict]:
 
 
 async def create_paypal_item_order(
-    name: str,
-    unit_price: Decimal,
-    quantity: int,
+    lines: list[tuple[str, Decimal, int]],
     reference: str,
 ) -> dict:
     """
-    A PayPal order for one product line. PayPal refuses the order unless the
-    item total equals unit price x quantity exactly, so all figures come from
-    the same Decimal values.
+    A PayPal order for one or more product lines (name, unit price, quantity).
+    PayPal refuses the order unless item_total equals the sum of every
+    unit price x quantity exactly, so all figures come from the same Decimals.
     """
-    total = (unit_price * quantity).quantize(Decimal("0.01"))
+    total = sum((price * qty for _, price, qty in lines), Decimal("0")).quantize(Decimal("0.01"))
     money = lambda value: {"currency_code": "USD", "value": f"{value:.2f}"}  # noqa: E731
+    items = [
+        {"name": name[:127], "quantity": str(qty), "unit_amount": money(price), "category": "PHYSICAL_GOODS"}
+        for name, price, qty in lines
+    ]
+    description = lines[0][0] if len(lines) == 1 else f"{len(lines)} items"
 
     token_data = await get_access_token()
 
@@ -412,14 +415,9 @@ async def create_paypal_item_order(
                     "purchase_units": [{
                         "reference_id": reference,
                         "custom_id": reference,
-                        "description": f"PayGuard Shop: {name}",
+                        "description": f"PayGuard Shop: {description}"[:127],
                         "amount": {**money(total), "breakdown": {"item_total": money(total)}},
-                        "items": [{
-                            "name": name[:127],
-                            "quantity": str(quantity),
-                            "unit_amount": money(unit_price),
-                            "category": "PHYSICAL_GOODS",
-                        }],
+                        "items": items,
                     }],
                     "payment_source": {"paypal": {"experience_context": {
                         "user_action": "PAY_NOW",

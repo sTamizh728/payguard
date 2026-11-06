@@ -27,7 +27,7 @@ from app.core.security import get_current_user
 from app.models.notification import Notification  # noqa: F401
 from app.models.shop_order import ShopOrder
 from app.models.user import User
-from app.services import payment_service, shop_service, webhook_service
+from app.services import catalog_service, payment_service, shop_service, webhook_service
 
 TOKEN = "twilio-test-token"
 BUYER = SimpleNamespace(id=1, email="buyer@shop.test", paypal_user_id="pp-buyer")
@@ -49,8 +49,8 @@ def world(monkeypatch):
 
     calls = []
 
-    async def fake_order(name, unit_price, quantity, reference):
-        calls.append(dict(name=name, unit_price=unit_price, quantity=quantity))
+    async def fake_order(lines, reference):
+        calls.append(dict(lines=lines))
         return {"order_id": f"PPORDER{len(calls)}", "approval_url": f"https://paypal.test/checkout/{len(calls)}"}
 
     monkeypatch.setattr(payment_service, "create_paypal_item_order", fake_order)
@@ -67,97 +67,183 @@ def orders(Session):
         return db.scalars(select(ShopOrder).order_by(ShopOrder.id)).all()
 
 
-# ---- app shop ----
+# ---- catalog, cart and checkout ----
 
-def test_products_list(world):
+CATALOG = {
+    101: {"id": 101, "title": "Apple AirPods Max Silver", "brand": "Apple", "price": Decimal("549.99"),
+          "rating": 3.5, "stock": 5, "thumbnail": None},
+    104: {"id": 104, "title": "Apple iPhone Charger", "brand": "Apple", "price": Decimal("19.99"),
+          "rating": 4.2, "stock": 30, "thumbnail": None},
+    105: {"id": 105, "title": "Apple MagSafe Battery Pack", "brand": "Apple", "price": Decimal("99.99"),
+          "rating": 3.6, "stock": 2, "thumbnail": None},
+}
+
+
+@pytest.fixture
+def catalog(monkeypatch):
+    async def search(query):
+        return [dict(p) for p in CATALOG.values()] if "apple" in query.lower() or "phone" in query.lower() else []
+
+    async def get_product(product_id):
+        if product_id not in CATALOG:
+            raise catalog_service.CatalogError("That product does not exist.")
+        return {**CATALOG[product_id], "description": "Great sound. Long battery.", "category": "audio",
+                "shipping": "Ships in 1 week", "returns": "30 days", "warranty": "1 year",
+                "reviews": [{"name": "Eleanor", "rating": 3, "comment": "Would not recommend!"},
+                            {"name": "Ravi", "rating": 5, "comment": "Excellent."}]}
+
+    monkeypatch.setattr(catalog_service, "search", search)
+    monkeypatch.setattr(catalog_service, "get_product", get_product)
+
+
+def test_products_list_is_the_phone_menu(world):
     names = [p["name"] for p in world.client.get("/api/shop/products").json()["products"]]
     assert names == ["PayGuard coffee mug", "PayGuard T-shirt", "Wireless earbuds", "Braille learning book"]
 
 
-def test_app_order_creates_paypal_checkout(world):
-    response = world.client.post("/api/shop/orders", json={"product_id": "mug", "quantity": 2})
+def test_search_and_details_with_reviews(world, catalog):
+    results = world.client.get("/api/shop/search", params={"q": "phone"}).json()["results"]
+    assert [r["id"] for r in results] == [101, 104, 105]
+    assert results[1]["price"] == "19.99" and results[1]["rating"] == 4.2
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["total"] == "24.00"
-    assert body["approval_url"] == "https://paypal.test/checkout/1"
-    assert re.fullmatch(r"\d{6}", body["code"])
-    assert world.calls == [dict(name="PayGuard coffee mug", unit_price=Decimal("12.00"), quantity=2)]
-    [order] = orders(world.Session)
-    assert order.user_id == 1 and order.channel == "app" and order.status == "CREATED"
+    details = world.client.get("/api/shop/products/104").json()
+    assert details["reviews"][0] == {"name": "Eleanor", "rating": 3, "comment": "Would not recommend!"}
+    assert world.client.get("/api/shop/products/999").status_code == 404
 
 
-@pytest.mark.parametrize("product, quantity", [("mug", 0), ("mug", 11), ("rocket", 1)])
-def test_bad_orders_are_refused(world, product, quantity):
-    response = world.client.post("/api/shop/orders", json={"product_id": product, "quantity": quantity})
-    assert response.status_code in (400, 422)
+def test_cart_add_change_remove(world, catalog):
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 2})
+    cart = world.client.post("/api/shop/cart", json={"product_id": 105, "quantity": 1}).json()
+    assert cart["total"] == "139.97"
+    assert [i["line_total"] for i in cart["items"]] == ["39.98", "99.99"]
+
+    cart = world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 0}).json()
+    assert [i["product_id"] for i in cart["items"]] == [105]
+
+
+def test_cart_refuses_unknown_product_and_too_many(world, catalog):
+    assert world.client.post("/api/shop/cart", json={"product_id": 999, "quantity": 1}).status_code == 400
+    response = world.client.post("/api/shop/cart", json={"product_id": 105, "quantity": 3})
+    assert response.status_code == 400 and "Only 2 left" in response.json()["detail"]
+    assert world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 11}).status_code == 422
+
+
+def test_checkout_uses_server_prices_and_empties_cart(world, catalog):
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 2})
+    world.client.post("/api/shop/cart", json={"product_id": 105, "quantity": 1})
+
+    order = world.client.post("/api/shop/checkout").json()
+
+    assert order["total"] == "139.97"
+    assert world.calls == [dict(lines=[("Apple iPhone Charger", Decimal("19.99"), 2),
+                                       ("Apple MagSafe Battery Pack", Decimal("99.99"), 1)])]
+    assert world.client.get("/api/shop/cart").json()["items"] == []
+    [saved] = orders(world.Session)
+    assert saved.summary == "2 x Apple iPhone Charger, 1 x Apple MagSafe Battery Pack"
+    assert saved.user_id == 1 and saved.channel == "app"
+
+
+def test_checkout_empty_cart(world, catalog):
+    response = world.client.post("/api/shop/checkout")
+    assert response.status_code == 400 and response.json()["detail"] == "Your cart is empty."
+
+
+def test_checkout_over_limit(world, catalog):
+    world.client.post("/api/shop/cart", json={"product_id": 101, "quantity": 2})  # $1099.98
+    response = world.client.post("/api/shop/checkout")
+    assert response.status_code == 400 and "up to $1000" in response.json()["detail"]
     assert world.calls == []
 
 
-def test_order_over_100_dollars_is_refused(world):
-    response = world.client.post("/api/shop/orders", json={"product_id": "earbuds", "quantity": 3})
-    assert response.status_code == 400
-    assert "up to $100" in response.json()["detail"]
-
-
-def test_paypal_down_creates_nothing(world, monkeypatch):
-    async def broken(**kwargs):
+def test_paypal_down_keeps_the_cart(world, catalog, monkeypatch):
+    async def broken(lines, reference):
         raise RuntimeError("PayPal order failed (HTTP 500).")
 
     monkeypatch.setattr(payment_service, "create_paypal_item_order", broken)
-    response = world.client.post("/api/shop/orders", json={"product_id": "mug", "quantity": 1})
-    assert response.status_code == 400
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    assert world.client.post("/api/shop/checkout").status_code == 400
+    assert len(world.client.get("/api/shop/cart").json()["items"]) == 1
     assert orders(world.Session) == []
 
 
-def test_mark_paid_and_my_orders(world):
-    world.client.post("/api/shop/orders", json={"product_id": "tshirt", "quantity": 1})
+def test_mark_paid_and_my_orders(world, catalog):
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    world.client.post("/api/shop/checkout")
 
     order = shop_service.mark_paid("PPORDER1")
 
     assert order.status == "PAID"
     [mine] = world.client.get("/api/shop/orders").json()["orders"]
     assert mine["status"] == "PAID" and mine["approval_url"] is None
+    assert mine["name"] == "1 x Apple iPhone Charger"
     assert shop_service.mark_paid("SOMEONE-ELSES-ORDER") is None
 
 
-# ---- buy by chat ----
+# ---- shopping by chat / voice ----
 
 def say(text, **intent):
     async def understand(t, role="customer"):
-        return {"action": "buy_product", **intent}
+        return intent
     return asyncio.run(chat_flow.handle_message(BUYER, text, understand))
 
 
-def test_buy_by_chat(world):
-    result = say("buy 2 coffee mugs", product="mug", quantity=2)
-
-    assert result.pending_action["type"] == "checkout"
-    assert result.pending_action["url"] == "https://paypal.test/checkout/1"
-    assert result.pending_action["summary"] == "2 x PayGuard coffee mug, $24.00"
-    assert result.event == "request_sent"
+def test_chat_search_reads_results(world, catalog):
+    result = say("search for apple phone accessories", action="search_products", query="apple phone")
+    assert result.reply.startswith("I found 3 products for apple phone. 1: Apple AirPods Max Silver, $549.99")
+    assert "2: Apple iPhone Charger, $19.99, rated 4.2 out of 5." in result.reply
 
 
-def test_buy_in_tamil(world):
-    result = say("ஒரு காபி கோப்பை வேண்டும்", product="mug")
-    assert result.pending_action["summary"] == "1 x PayGuard coffee mug, $12.00"
+def test_chat_details_reads_reviews(world, catalog):
+    say("search apple", action="search_products", query="apple")
+    result = say("tell me about the second one", action="product_details", result_number=2)
+    assert result.reply.startswith("Apple iPhone Charger, $19.99, rated 4.2 out of 5. Great sound")
+    assert "Eleanor gave 3 stars: Would not recommend!" in result.reply
 
 
-def test_ai_invented_product_is_refused(world):
-    result = say("buy me something nice", product="earbuds")
-    assert result.reply.startswith("Which one would you like?")
-    assert world.calls == []
+def test_chat_add_it_then_checkout(world, catalog):
+    say("search apple", action="search_products", query="apple")
+    say("tell me about number 2", action="product_details", result_number=2)
+    added = say("add it to my cart", action="add_to_cart")
+    assert added.reply.startswith("Added 1 Apple iPhone Charger to your cart. Your cart: 1: 1 x Apple iPhone Charger")
+
+    paid = say("checkout", action="checkout_cart")
+    assert paid.pending_action["type"] == "checkout"
+    assert paid.pending_action["url"] == "https://paypal.test/checkout/1"
+    assert paid.pending_action["summary"] == "1 x Apple iPhone Charger, $19.99"
 
 
-def test_ai_invented_quantity_is_refused(world):
-    result = say("buy a mug", product="mug", quantity=5)
-    assert result.reply == "How many would you like?"
-    assert world.calls == []
+def test_chat_add_by_number_and_quantity(world, catalog):
+    say("search apple", action="search_products", query="apple")
+    result = say("add 2 of number 3", action="add_to_cart", result_number=3, quantity=2)
+    assert "Only 2 left" not in result.reply
+    assert "2 x Apple MagSafe Battery Pack, $199.98" in result.reply
 
 
-def test_two_products_at_once_asks(world):
-    result = say("buy a mug and a book", product="mug")
-    assert result.reply.startswith("Which one would you like?")
+def test_chat_ai_invented_numbers_are_refused(world, catalog):
+    say("search apple", action="search_products", query="apple")
+    assert say("add something", action="add_to_cart", result_number=2).reply.startswith("Which product?")
+    assert say("add number 1", action="add_to_cart", result_number=1, quantity=4).reply == "How many would you like?"
+    assert say("tell me more", action="product_details", result_number=1).reply.startswith("Which result?")
+
+
+def test_chat_number_without_search(world, catalog):
+    assert say("add number 1", action="add_to_cart", result_number=1).reply.startswith("Which product?")
+
+
+def test_chat_remove_and_show_cart(world, catalog):
+    say("search apple", action="search_products", query="apple")
+    say("add number 2", action="add_to_cart", result_number=2)
+    assert say("remove item 1", action="remove_from_cart", item_number=1).reply == "Removed Apple iPhone Charger. Your cart is empty."
+    assert say("what's in my cart", action="show_cart").reply == "Your cart is empty."
+
+
+def test_chat_catalog_down(world, monkeypatch):
+    async def broken(query):
+        raise catalog_service.CatalogError("The product catalog is not reachable right now.")
+
+    monkeypatch.setattr(catalog_service, "search", broken)
+    result = say("search phones", action="search_products", query="phones")
+    assert result.reply == "The product catalog is not reachable right now." and result.event == "failed"
 
 
 # ---- phone call (signed like Twilio) ----
@@ -283,8 +369,9 @@ def test_old_code_expires(world):
     assert world.client.post("/api/shop/claim", json={"code": code}).status_code == 400
 
 
-def test_app_order_code_cannot_be_claimed(world):
-    code = world.client.post("/api/shop/orders", json={"product_id": "mug", "quantity": 1}).json()["code"]
+def test_app_order_code_cannot_be_claimed(world, catalog):
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    code = world.client.post("/api/shop/checkout").json()["code"]
     assert world.client.post("/api/shop/claim", json={"code": code}).status_code == 400
 
 
@@ -305,13 +392,14 @@ def test_paypal_item_order_totals_match(monkeypatch):
     real = httpx.AsyncClient
     monkeypatch.setattr(payment_service.httpx, "AsyncClient", lambda *a, **k: real(*a, **{**k, "transport": transport}))
 
-    result = asyncio.run(payment_service.create_paypal_item_order("Mug", Decimal("12.00"), 3, "shop-1"))
+    result = asyncio.run(payment_service.create_paypal_item_order(
+        [("Mug", Decimal("12.00"), 3), ("Book", Decimal("15.50"), 1)], "shop-1"))
 
     assert result == {"order_id": "O1", "approval_url": "https://pp/approve"}
     import json
     unit = json.loads(seen[0].content)["purchase_units"][0]
-    assert unit["amount"]["value"] == "36.00"
-    assert unit["amount"]["breakdown"]["item_total"]["value"] == "36.00"
+    assert unit["amount"]["value"] == "51.50"
+    assert unit["amount"]["breakdown"]["item_total"]["value"] == "51.50"
     assert unit["items"][0] == {
         "name": "Mug", "quantity": "3", "unit_amount": {"currency_code": "USD", "value": "12.00"},
         "category": "PHYSICAL_GOODS",
