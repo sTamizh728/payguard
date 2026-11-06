@@ -68,6 +68,18 @@ export const signConfirmation = async (actionId: string, summary: string) => {
   );
 };
 
+/** Fingerprint / PIN, then sign the server's one-time balance code. */
+export const signBalanceCode = async (code: string) => {
+  if (!Native) {
+    throw new Error('Security module missing.');
+  }
+  return Native.signWithAuth(
+    `payguard-balance:${code}`,
+    'Show PayPal balance',
+    'Confirm it is you',
+  );
+};
+
 /** Ask for fingerprint / PIN before showing private information. */
 export const unlock = async (reason: string) => {
   if (!Native) {

@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.payment_transaction import PaymentTransaction
 
@@ -73,7 +74,7 @@ def save_completed_capture(
             status=status,
             payer_email=payer_email.strip().lower() if payer_email else None,
             payer_id=payer_id,
-            environment="sandbox",
+            environment=settings.paypal_env,
         )
 
         db.add(transaction)

@@ -1,21 +1,31 @@
 from pathlib import Path
+from typing import Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
+PAYPAL_URLS = {
+    "sandbox": ("https://api-m.sandbox.paypal.com", "https://www.sandbox.paypal.com"),
+    "live": ("https://api-m.paypal.com", "https://www.paypal.com"),
+}
+
+
 class Settings(BaseSettings):
+    # One switch for test money vs real money. Live also needs LIVE client
+    # id/secret and PayPal's approval for Payouts and Log in with PayPal.
+    paypal_env: Literal["sandbox", "live"] = "sandbox"
     paypal_client_id: str
     paypal_client_secret: str
-    paypal_base_url: str = "https://api-m.sandbox.paypal.com"
+    paypal_base_url: str | None = None
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
     # Log in with PayPal
-    paypal_web_base_url: str = "https://www.sandbox.paypal.com"
+    paypal_web_base_url: str | None = None
     # Must match the Return URL saved in the PayPal developer dashboard exactly.
     paypal_login_redirect_uri: str = (
         "https://dismantle-scheming-pasty.ngrok-free.dev/api/auth/paypal/callback"
@@ -28,6 +38,21 @@ class Settings(BaseSettings):
 
     # PayPal webhook ID (from creating the webhook); needed to verify events.
     paypal_webhook_id: str | None = None
+
+    @model_validator(mode="after")
+    def paypal_addresses_match_env(self):
+        api_url, web_url = PAYPAL_URLS[self.paypal_env]
+        self.paypal_base_url = self.paypal_base_url or api_url
+        self.paypal_web_base_url = self.paypal_web_base_url or web_url
+
+        # Fail loudly instead of mixing real and test money.
+        uses_sandbox = "sandbox" in self.paypal_base_url or "sandbox" in self.paypal_web_base_url
+        if uses_sandbox != (self.paypal_env == "sandbox"):
+            raise ValueError(
+                f"PAYPAL_ENV is {self.paypal_env!r} but a PayPal address says otherwise. "
+                "Remove PAYPAL_BASE_URL / PAYPAL_WEB_BASE_URL or make them match."
+            )
+        return self
 
     @field_validator("database_url")
     @classmethod

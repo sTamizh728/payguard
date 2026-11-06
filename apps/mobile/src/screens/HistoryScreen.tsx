@@ -2,7 +2,7 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 
 import {api} from '../api';
-import {unlock} from '../native';
+import {playSound, signBalanceCode, unlock} from '../native';
 import {Session, t} from '../session';
 import {colors, ui} from '../theme';
 
@@ -18,6 +18,30 @@ const HistoryScreen = ({session}: {session: Session}) => {
   const [unlocked, setUnlocked] = useState(false);
   const [data, setData] = useState<any>(null);
   const [message, setMessage] = useState('');
+  const [balance, setBalance] = useState('');
+
+  // The server only answers for a fresh fingerprint / PIN signature.
+  const checkBalance = async () => {
+    if (!account) {
+      return;
+    }
+    setBalance('…');
+    try {
+      const {challenge} = await api('/api/security/balance-challenge', account.token);
+      const signature = await signBalanceCode(challenge);
+      const result = await api('/api/security/balance', account.token, {
+        body: {challenge, signature},
+      });
+      const lines = result.balances.map(
+        (b: any) => `${b.currency} ${b.available} ${t(tamil, 'available', 'கிடைக்கிறது')}` +
+          (Number(b.on_hold) > 0 ? ` (${b.on_hold} ${t(tamil, 'on hold', 'நிறுத்திவைப்பில்')})` : ''),
+      );
+      setBalance(lines.join('\n') || t(tamil, 'No balance.', 'இருப்பு இல்லை.'));
+      playSound('unlocked');
+    } catch (error) {
+      setBalance(error instanceof Error ? error.message : session.handleError(error));
+    }
+  };
 
   const load = useCallback(async () => {
     if (!account) {
@@ -95,6 +119,26 @@ const HistoryScreen = ({session}: {session: Session}) => {
         <>
           <View style={ui.card}>
             <Text style={ui.heading} accessibilityRole="header">
+              {t(tamil, 'PayPal balance', 'PayPal இருப்பு')}
+            </Text>
+            <Text style={ui.muted}>
+              {t(tamil, 'Money in the PayPal account PayGuard manages.',
+                'PayGuard நிர்வகிக்கும் PayPal கணக்கில் உள்ள பணம்.')}
+            </Text>
+            {balance ? (
+              <Text style={[ui.title, styles.balance]} accessibilityLiveRegion="polite">
+                {balance}
+              </Text>
+            ) : null}
+            <TouchableOpacity onPress={checkBalance} accessibilityRole="button" style={ui.primaryButton}>
+              <Text style={ui.primaryButtonText}>
+                🔒 {t(tamil, 'Check balance', 'இருப்பைப் பார்')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={ui.card}>
+            <Text style={ui.heading} accessibilityRole="header">
               {t(tamil, 'Money you sent', 'நீங்கள் அனுப்பியது')}
             </Text>
             {data.sent.length === 0 && <Text style={ui.muted}>{t(tamil, 'Nothing sent yet.', 'இன்னும் எதுவும் அனுப்பவில்லை.')}</Text>}
@@ -151,6 +195,10 @@ const HistoryScreen = ({session}: {session: Session}) => {
 };
 
 const styles = StyleSheet.create({
+  balance: {
+    marginTop: 12,
+    marginBottom: 0,
+  },
   refresh: {
     marginTop: 0,
     marginBottom: 16,
