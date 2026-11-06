@@ -494,3 +494,80 @@ def test_search_stops_early_when_exact_words_find_enough(monkeypatch):
     monkeypatch.setattr(catalog_service, "_get", fake_get)
     assert len(asyncio.run(catalog_service.search("phone"))) == 3
     assert asked == ["/products/search"]
+
+
+# ---- confirmation, receipt and delivery date ----
+
+def pay_cart(world, monkeypatch):
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 2})
+    code = world.client.post("/api/shop/checkout").json()["code"]
+
+    async def capture(order_id):
+        return {"order_id": order_id, "status": "COMPLETED", "payer_email": "b@x.test", "payer_id": "P1",
+                "captures": [{"capture_id": "CAPTURE-77", "status": "COMPLETED", "amount": "39.98", "currency": "USD"}]}
+
+    monkeypatch.setattr(payment_service, "capture_paypal_order", capture)
+    from app.services import transaction_service
+    monkeypatch.setattr(transaction_service, "save_completed_capture", lambda *a, **k: None)
+    world.client.post("/api/shop/complete", json={"order_id": "PPORDER1"})
+    return code
+
+
+def test_receipt_after_payment(world, catalog, monkeypatch):
+    code = pay_cart(world, monkeypatch)
+
+    receipt = world.client.get(f"/api/shop/orders/{code}").json()
+
+    assert receipt["status"] == "PAID" and receipt["total"] == "39.98"
+    assert receipt["items"] == [{"title": "Apple iPhone Charger", "price": "19.99", "quantity": 2}]
+    assert receipt["transaction_id"] == "CAPTURE-77"
+    assert receipt["paid_at"] is not None
+    expected = shop_service.expected_delivery(["Ships in 1 week"]).isoformat()
+    assert receipt["delivery_by"] == expected
+
+
+def test_confirmation_alert_has_delivery_date(world, catalog, monkeypatch):
+    code = pay_cart(world, monkeypatch)
+    [alert] = webhook_service.list_for(1, is_owner=False)
+    when = shop_service.delivery_words(shop_service.expected_delivery(["Ships in 1 week"]).isoformat())
+    assert alert["text"] == (
+        f"Order {code} confirmed: 2 x Apple iPhone Charger, $39.98 paid with PayPal. "
+        f"Expected delivery by {when}."
+    )
+
+
+def test_receipt_is_private(world, catalog, monkeypatch):
+    code = pay_cart(world, monkeypatch)
+    with world.Session() as db:
+        db.scalar(select(ShopOrder)).user_id = 999
+        db.commit()
+    assert world.client.get(f"/api/shop/orders/{code}").status_code == 404
+
+
+def test_chat_where_is_my_order(world, catalog, monkeypatch):
+    code = pay_cart(world, monkeypatch)
+    reply = say("where is my order", action="show_orders").reply
+    assert reply.startswith(f"Your latest orders. Order {code}: 2 x Apple iPhone Charger, $39.98, paid, expected delivery by")
+
+
+def test_chat_no_orders(world):
+    assert say("where is my order", action="show_orders").reply == "You have no shop orders yet."
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("Ships overnight", "2026-11-09"),             # Fri + 1 day + 2 transit
+    ("Ships in 1-2 business days", "2026-11-12"),  # skips the weekend
+    ("Ships in 3-5 business days", "2026-11-15"),
+    ("Ships in 2 weeks", "2026-11-22"),
+    ("Ships in 1 month", "2026-12-08"),
+    (None, "2026-11-15"),
+])
+def test_expected_delivery(text, expected):
+    from datetime import date
+    assert shop_service.expected_delivery([text], date(2026, 11, 6)).isoformat() == expected
+
+
+def test_order_waits_for_the_slowest_item():
+    from datetime import date
+    days = shop_service.expected_delivery(["Ships overnight", "Ships in 2 weeks"], date(2026, 11, 6))
+    assert days.isoformat() == "2026-11-22"

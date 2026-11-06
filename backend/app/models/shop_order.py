@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -32,6 +32,13 @@ class ShopOrder(Base):
 
     # CREATED -> PAID
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="CREATED")
+
+    # Receipt: JSON list of {title, price, quantity}, expected delivery date
+    # (YYYY-MM-DD), and PayPal's transaction (capture) id once paid.
+    items_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery_by: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    transaction_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

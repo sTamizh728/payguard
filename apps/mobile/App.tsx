@@ -223,9 +223,25 @@ const App = () => {
       }
       setAuthMessage('Finishing your PayPal payment...');
       try {
-        await api('/api/shop/complete', current.token, {body: {order_id: params.token}});
-        setAuthMessage('Payment complete. Thank you!');
+        const done = await api('/api/shop/complete', current.token, {
+          body: {order_id: params.token},
+        });
+        const order = done.order;
+        const when = order?.delivery_by
+          ? new Date(order.delivery_by).toLocaleDateString('en-GB', {
+              weekday: 'short',
+              day: '2-digit',
+              month: 'short',
+            })
+          : null;
+        const confirmation = order
+          ? `Order ${order.code} confirmed: ${order.name}, $${order.total} paid with PayPal.` +
+            (when ? ` Expected delivery by ${when}.` : '') +
+            ' Your receipt is in Shop, My orders.'
+          : 'Payment complete. Thank you!';
+        setAuthMessage(confirmation);
         playSound('payment_sent');
+        AccessibilityInfo.announceForAccessibility(confirmation);
       } catch (error) {
         setAuthMessage(error instanceof Error ? error.message : 'The payment could not be finished.');
         playSound('failed');

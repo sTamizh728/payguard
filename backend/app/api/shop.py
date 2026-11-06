@@ -102,6 +102,15 @@ def my_orders(current_user: User = Depends(get_current_user)):
     return {"orders": shop_service.list_orders(current_user.id)}
 
 
+@router.get("/orders/{code}")
+def order_receipt(code: str, current_user: User = Depends(get_current_user)):
+    """The receipt: items, total, PayPal transaction and expected delivery."""
+    found = shop_service.receipt(code, current_user.id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="That order was not found.")
+    return found
+
+
 @router.post("/claim")
 def claim(data: ClaimRequest, current_user: User = Depends(get_current_user)):
     """Open an order made by phone call, using the code read out on the call."""

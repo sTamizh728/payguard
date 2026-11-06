@@ -217,8 +217,12 @@ remove_from_cart = _tool(
 )
 show_cart = _tool("show_cart", "The person wants to hear what is in their cart.")
 checkout_cart = _tool("checkout_cart", "The person wants to pay for their cart / check out.")
+show_orders = _tool(
+    "show_orders",
+    "The person asks about their shop orders: status, receipt, or when it will be delivered.",
+)
 
-SHOP_TOOLS = [search_products, product_details, add_to_cart, remove_from_cart, show_cart, checkout_cart]
+SHOP_TOOLS = [search_products, product_details, add_to_cart, remove_from_cart, show_cart, checkout_cart, show_orders]
 
 TOOLS = [
     *SHOP_TOOLS,

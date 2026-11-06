@@ -2,9 +2,10 @@
 PayGuard Shop: a few demo products sold through real PayPal checkout.
 Used by the app, the chat assistant and the phone-call menu.
 """
+import json
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -20,6 +21,40 @@ MAX_TOTAL = Decimal("100.00")  # phone orders
 CART_MAX_TOTAL = Decimal("1000.00")  # app / chat cart
 CART_MAX_LINES = 10
 CLAIM_MINUTES = 30  # a phone order code can be claimed in the app this long
+TRANSIT_DAYS = 2  # after the shop ships, the courier needs about this long
+
+
+def _add_business_days(start: date, days: int) -> date:
+    current = start
+    while days > 0:
+        current += timedelta(days=1)
+        if current.weekday() < 5:
+            days -= 1
+    return current
+
+
+def expected_delivery(shipping_texts: list[str | None], start: date | None = None) -> date:
+    """
+    Latest arrival for an order, from texts like "Ships overnight",
+    "Ships in 3-5 business days", "Ships in 2 weeks", "Ships in 1 month".
+    """
+    start = start or date.today()
+    latest = start
+    for text in shipping_texts:
+        text = (text or "").lower()
+        numbers = [int(n) for n in re.findall(r"\d+", text)]
+        if "overnight" in text:
+            ships = start + timedelta(days=1)
+        elif "business day" in text and numbers:
+            ships = _add_business_days(start, max(numbers))
+        elif "week" in text and numbers:
+            ships = start + timedelta(weeks=max(numbers))
+        elif "month" in text and numbers:
+            ships = start + timedelta(days=30 * max(numbers))
+        else:
+            ships = _add_business_days(start, 5)  # unknown: assume about a week
+        latest = max(latest, ships)
+    return latest + timedelta(days=TRANSIT_DAYS)
 
 # Keypad number on the phone menu = position in this list + 1.
 PRODUCTS = [
@@ -98,6 +133,8 @@ async def create_order(product_id: str, quantity: int, channel: str, user_id: in
             quantity=quantity,
             total=total,
             summary=f"{quantity} x {product['name']}",
+            items_json=json.dumps([{"title": product["name"], "price": f"{product['price']:.2f}", "quantity": quantity}]),
+            delivery_by=expected_delivery(["Ships in 3-5 business days"]).isoformat(),
             paypal_order_id=paypal["order_id"],
             approval_url=paypal["approval_url"],
             status="CREATED",
@@ -118,13 +155,16 @@ async def create_order(product_id: str, quantity: int, channel: str, user_id: in
     }
 
 
-def mark_paid(paypal_order_id: str) -> ShopOrder | None:
+def mark_paid(paypal_order_id: str, transaction_id: str | None = None) -> ShopOrder | None:
     """Called once PayPal captured the money. Returns the order, or None if it isn't a shop order."""
     with SessionLocal() as db:
         order = db.scalar(select(ShopOrder).where(ShopOrder.paypal_order_id == paypal_order_id))
         if order is None:
             return None
+        if order.status != "PAID":
+            order.paid_at = datetime.now(timezone.utc)
         order.status = "PAID"
+        order.transaction_id = transaction_id or order.transaction_id
         db.commit()
         db.refresh(order)
         db.expunge(order)
@@ -168,6 +208,10 @@ def _view(order: ShopOrder) -> dict:
         "channel": order.channel,
         "approval_url": order.approval_url if order.status == "CREATED" else None,
         "created_at": order.created_at.isoformat(),
+        "items": json.loads(order.items_json) if order.items_json else [],
+        "delivery_by": order.delivery_by,
+        "paid_at": order.paid_at.isoformat() if order.paid_at else None,
+        "transaction_id": order.transaction_id,
     }
 
 
@@ -232,6 +276,7 @@ async def get_cart(user_id: int) -> dict:
             "price": product["price"],
             "quantity": quantity,
             "line_total": (product["price"] * quantity).quantize(Decimal("0.01")),
+            "shipping": product.get("shipping"),
         })
     total = sum((i["line_total"] for i in items), Decimal("0.00"))
     return {"items": items, "total": total}
@@ -264,6 +309,11 @@ async def checkout_cart(user_id: int) -> dict:
             code=code, user_id=user_id, channel="app", product_id="cart", quantity=units,
             total=cart["total"], summary=summary, paypal_order_id=paypal["order_id"],
             approval_url=paypal["approval_url"], status="CREATED",
+            items_json=json.dumps([
+                {"title": i["title"], "price": f"{i['price']:.2f}", "quantity": i["quantity"]}
+                for i in cart["items"]
+            ]),
+            delivery_by=expected_delivery([i.get("shipping") for i in cart["items"]]).isoformat(),
         ))
         for item in db.scalars(select(CartItem).where(CartItem.user_id == user_id)).all():
             db.delete(item)
@@ -298,11 +348,11 @@ async def complete_checkout(paypal_order_id: str) -> dict:
                 payer_email=result.get("payer_email"), payer_id=result.get("payer_id"),
             )
 
-    order = mark_paid(result["order_id"])
+    capture_id = next((c["capture_id"] for c in result["captures"] if c.get("status") == "COMPLETED"), None)
+    order = mark_paid(result["order_id"], capture_id)
     if order is not None and order.user_id is not None:
         webhook_service.add_notification(
-            order.user_id, "order_paid",
-            f"Order {order.code} is paid: {order.summary or order.product_id}, ${order.total:.2f}.",
+            order.user_id, "order_paid", confirmation_text(order),
         )
     return {"paid": True, "order": _view(order) if order else None}
 
@@ -310,3 +360,24 @@ async def complete_checkout(paypal_order_id: str) -> dict:
 def order_owner(paypal_order_id: str) -> int | None:
     with SessionLocal() as db:
         return db.scalar(select(ShopOrder.user_id).where(ShopOrder.paypal_order_id == paypal_order_id))
+
+
+def delivery_words(iso_date: str | None) -> str:
+    if not iso_date:
+        return "soon"
+    return date.fromisoformat(iso_date).strftime("%a %d %b")
+
+
+def confirmation_text(order: ShopOrder) -> str:
+    return (
+        f"Order {order.code} confirmed: {order.summary or order.product_id}, "
+        f"${Decimal(str(order.total)):.2f} paid with PayPal. "
+        f"Expected delivery by {delivery_words(order.delivery_by)}."
+    )
+
+
+def receipt(code: str, user_id: int) -> dict | None:
+    """One order with everything a receipt needs, only for its owner."""
+    with SessionLocal() as db:
+        order = db.scalar(select(ShopOrder).where(ShopOrder.code == code, ShopOrder.user_id == user_id))
+        return _view(order) if order else None
