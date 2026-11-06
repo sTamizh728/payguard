@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.exc import IntegrityError
 import jwt
@@ -6,6 +8,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import SessionLocal
+from app.models.refresh_token import RefreshToken
 from app.models.user import User
 
 password_hash = PasswordHash.recommended()
@@ -138,3 +141,38 @@ def authenticate_paypal_user(
             raise ValueError(
                 "This PayPal account could not be registered. Please try again."
             ) from None
+
+# ---------- long-lasting login (until the person logs out) ----------
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def issue_refresh_token(user_id: int) -> str:
+    token = secrets.token_urlsafe(48)
+    with SessionLocal() as db:
+        db.add(RefreshToken(user_id=user_id, token_hash=_hash_token(token)))
+        db.commit()
+    return token
+
+
+def use_refresh_token(token: str) -> int | None:
+    """The user id for a valid (not logged-out) token, or None."""
+    with SessionLocal() as db:
+        row = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == _hash_token(token)))
+        if row is None or row.revoked_at is not None:
+            return None
+        user = db.get(User, row.user_id)
+        if user is None or not user.is_active:
+            return None
+        row.last_used_at = datetime.now(timezone.utc)
+        db.commit()
+        return row.user_id
+
+
+def revoke_refresh_token(token: str) -> None:
+    with SessionLocal() as db:
+        row = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == _hash_token(token)))
+        if row is not None and row.revoked_at is None:
+            row.revoked_at = datetime.now(timezone.utc)
+            db.commit()

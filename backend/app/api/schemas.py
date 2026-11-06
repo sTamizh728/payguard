@@ -16,6 +16,12 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    # Long-lasting login for this phone, valid until logout.
+    refresh_token: str | None = None
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=20, max_length=200)
 
 
 class UserResponse(BaseModel):

@@ -22,7 +22,7 @@ import HomeScreen from './src/screens/HomeScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import SendScreen from './src/screens/SendScreen';
 import ShopScreen from './src/screens/ShopScreen';
-import {playSound} from './src/native';
+import {forgetLogin, loadLogin, playSound, saveLogin} from './src/native';
 import {Account, LiveAlert, Session, setUpPhoneSecurity} from './src/session';
 import {colors} from './src/theme';
 
@@ -91,15 +91,29 @@ const App = () => {
   const [authMessage, setAuthMessage] = useState('');
   const pendingNonce = useRef<string | null>(null);
   const [locked, setLocked] = useState(false);
+  // A saved login waits behind the lock screen until the phone's lock is passed.
+  const [restoring, setRestoring] = useState(false);
+
+  useEffect(() => {
+    loadLogin()
+      .then(saved => saved && setRestoring(true))
+      .catch(() => {});
+  }, []);
   const leftAt = useRef<number | null>(null);
   const [liveAlerts, setLiveAlerts] = useState<LiveAlert[]>([]);
   const lastAlertId = useRef(0);
 
+  // Only a person pressing Log out (or a login the server refused) logs out.
   const logout = useCallback((message = '') => {
     setAccount(null);
     setLocked(false);
+    setRestoring(false);
     setAuthMessage(message);
     setTab('home');
+    loadLogin()
+      .then(saved => saved && api('/api/auth/logout', null, {body: {refresh_token: saved}}))
+      .catch(() => {})
+      .finally(() => forgetLogin());
   }, []);
 
   // App lock: away for more than 15 seconds -> fingerprint / face / PIN again.
@@ -122,8 +136,18 @@ const App = () => {
   const handleError = useCallback(
     (error: unknown) => {
       if (error instanceof LoginExpired) {
-        logout(error.message);
-        return error.message;
+        // The 30-minute access token ran out: renew it quietly from the saved
+        // login. Only a login the server refuses really logs the person out.
+        loadLogin()
+          .then(async saved => {
+            if (!saved) {
+              throw new Error('no saved login');
+            }
+            const data = await api('/api/auth/refresh', null, {body: {refresh_token: saved}});
+            setAccount(current => (current ? {...current, token: data.access_token} : current));
+          })
+          .catch(() => logout('Please log in again.'));
+        return 'Your session was renewed. Please try again.';
       }
       return error instanceof Error ? error.message : 'Something went wrong.';
     },
@@ -174,7 +198,10 @@ const App = () => {
     return () => clearInterval(timer);
   }, [account]);
 
-  const finishLogin = async (token: string) => {
+  const finishLogin = async (token: string, refreshToken?: string | null) => {
+    if (refreshToken) {
+      await saveLogin(refreshToken); // stay logged in until Log out
+    }
     const data = await api('/api/auth/me', token);
     setAccount({
       token,
@@ -194,6 +221,47 @@ const App = () => {
       setAuthMessage(error instanceof Error ? error.message : 'Security setup failed.');
     }
   };
+
+  /** After the phone's PIN / pattern / fingerprint: open the saved login. */
+  const restoreLogin = async () => {
+    try {
+      const saved = await loadLogin();
+      if (!saved) {
+        setRestoring(false);
+        return;
+      }
+      const data = await api('/api/auth/refresh', null, {body: {refresh_token: saved}});
+      await finishLogin(data.access_token);
+      setRestoring(false);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Please log in again.') {
+        logout('Please log in again.'); // logged out on the server
+      } else {
+        // Offline or server waking up: stay on the lock screen and let them retry.
+        setAuthMessage('PayGuard could not reach the server. Unlock again to retry.');
+      }
+    }
+  };
+
+  // The 30-minute access token is renewed quietly while the app is open.
+  useEffect(() => {
+    if (!account) {
+      return;
+    }
+    const timer = setInterval(async () => {
+      try {
+        const saved = await loadLogin();
+        if (!saved) {
+          return;
+        }
+        const data = await api('/api/auth/refresh', null, {body: {refresh_token: saved}});
+        setAccount(current => (current ? {...current, token: data.access_token} : current));
+      } catch {
+        // Try again next time; a refused login shows up on the next request.
+      }
+    }, 20 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [account]);
 
   // The newest account, for links that arrive while the app is running.
   const accountRef = useRef<Account | null>(null);
@@ -276,7 +344,7 @@ const App = () => {
         : await api('/api/auth/paypal/exchange', null, {
             body: {code: params.code, app_nonce: nonce},
           });
-      await finishLogin(data.access_token);
+      await finishLogin(data.access_token, data.refresh_token);
     } catch (error) {
       setAuthMessage(error instanceof Error ? error.message : 'PayPal login failed.');
     } finally {
@@ -337,7 +405,7 @@ const App = () => {
       const data = await api('/api/auth/login', null, {
         body: {email: form.email.trim(), password: form.password},
       });
-      await finishLogin(data.access_token);
+      await finishLogin(data.access_token, data.refresh_token);
     } catch (error) {
       setAuthMessage(error instanceof Error ? error.message : 'Login failed.');
     } finally {
@@ -405,10 +473,10 @@ const App = () => {
 
       <TabBar current={tab} onChange={setTab} tamil={tamil} />
 
-      {locked && account && (
+      {((locked && account) || restoring) && (
         <LockScreen
           tamil={tamil}
-          onUnlocked={() => setLocked(false)}
+          onUnlocked={() => (restoring ? restoreLogin() : setLocked(false))}
           onLogout={() => logout()}
         />
       )}

@@ -10,6 +10,7 @@ from app.api.schemas import (
     MeResponse,
     PayPalExchangeRequest,
     PayPalFinishRequest,
+    RefreshRequest,
     TokenResponse,
     UserLogin,
     UserRegister,
@@ -23,10 +24,41 @@ from app.services.auth_service import (
     authenticate_paypal_user,
     authenticate_user,
     create_access_token,
+    issue_refresh_token,
     register_user,
+    revoke_refresh_token,
+    use_refresh_token,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
+
+
+def _login_tokens(user_id: int) -> TokenResponse:
+    """A short access token plus a long-lasting login for this phone."""
+    return TokenResponse(
+        access_token=create_access_token(user_id),
+        expires_in=settings.access_token_expire_minutes * 60,
+        refresh_token=issue_refresh_token(user_id),
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh(data: RefreshRequest):
+    """A fresh access token for a phone that is still logged in."""
+    user_id = use_refresh_token(data.refresh_token)
+    if user_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Please log in again.")
+    return TokenResponse(
+        access_token=create_access_token(user_id),
+        expires_in=settings.access_token_expire_minutes * 60,
+    )
+
+
+@router.post("/logout")
+def logout(data: RefreshRequest):
+    """Log this phone out for good: its long-lasting login stops working."""
+    revoke_refresh_token(data.refresh_token)
+    return {"logged_out": True}
 
 
 @router.post(
@@ -66,12 +98,7 @@ def login(data: UserLogin):
             detail="Incorrect email or password.",
         )
 
-    token = create_access_token(user.id)
-
-    return TokenResponse(
-        access_token=token,
-        expires_in=settings.access_token_expire_minutes * 60,
-    )
+    return _login_tokens(user.id)
 
 @router.get("/me", response_model=MeResponse)
 def get_my_profile(
@@ -223,10 +250,7 @@ async def paypal_login_finish(data: PayPalFinishRequest):
             detail="An account with this email already exists. Log in with your email and password instead.",
         )
 
-    return TokenResponse(
-        access_token=create_access_token(user.id),
-        expires_in=settings.access_token_expire_minutes * 60,
-    )
+    return _login_tokens(user.id)
 
 
 @router.post("/paypal/exchange", response_model=TokenResponse)
@@ -244,9 +268,4 @@ def paypal_login_exchange(data: PayPalExchangeRequest):
             detail="Login code is invalid or expired.",
         )
 
-    token = create_access_token(user_id)
-
-    return TokenResponse(
-        access_token=token,
-        expires_in=settings.access_token_expire_minutes * 60,
-    )
+    return _login_tokens(user_id)
