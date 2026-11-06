@@ -350,3 +350,31 @@ async def get_paypal_payout_status(payout_batch_id: str) -> str | None:
         return items[0]["transaction_status"]
 
     return (data.get("batch_header") or {}).get("batch_status")
+
+
+async def get_paypal_balances() -> list[dict]:
+    """The PayPal wallet balance of the account this app manages (Balances API)."""
+    token_data = await get_access_token()
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        try:
+            response = await client.get(
+                f"{settings.paypal_base_url.rstrip('/')}/v1/reporting/balances",
+                params={"currency_code": "ALL"},
+                headers={"Authorization": f"Bearer {token_data['access_token']}"},
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"PayPal balance failed (HTTP {exc.response.status_code}).") from None
+        except httpx.RequestError:
+            raise RuntimeError("Could not reach PayPal.") from None
+
+    return [
+        {
+            "currency": b.get("currency"),
+            "available": (b.get("available_balance") or {}).get("value"),
+            "total": (b.get("total_balance") or {}).get("value"),
+            "on_hold": (b.get("withheld_balance") or {}).get("value"),
+        }
+        for b in response.json().get("balances", [])
+    ]

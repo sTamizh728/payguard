@@ -1,5 +1,7 @@
 import base64
 import binascii
+import secrets
+import time
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
@@ -64,6 +66,36 @@ def register_device_key(user_id: int, public_key_b64: str, token_age_seconds: fl
 
 
 def verify_confirmation(user_id: int, action_id: str, signature_b64: str | None) -> bool:
+    return _verify(user_id, confirmation_payload(action_id), signature_b64)
+
+
+# One-time codes for "show my balance": the phone signs one after fingerprint/PIN.
+CHALLENGE_TTL_SECONDS = 60
+_challenges: dict[str, tuple[int, float]] = {}  # code -> (user_id, expires_at)
+
+
+def issue_challenge(user_id: int) -> str:
+    now = time.time()
+    for code in [c for c, (_, expires) in _challenges.items() if expires < now]:
+        _challenges.pop(code, None)
+    code = secrets.token_urlsafe(24)
+    _challenges[code] = (user_id, now + CHALLENGE_TTL_SECONDS)
+    return code
+
+
+def challenge_payload(code: str) -> bytes:
+    return f"payguard-balance:{code}".encode()
+
+
+def verify_challenge(user_id: int, code: str, signature_b64: str | None) -> bool:
+    """Single use: the code is gone after one try, right or wrong."""
+    entry = _challenges.pop(code, None)
+    if entry is None or entry[0] != user_id or entry[1] < time.time():
+        return False
+    return _verify(user_id, challenge_payload(code), signature_b64)
+
+
+def _verify(user_id: int, payload: bytes, signature_b64: str | None) -> bool:
     if not signature_b64:
         return False
 
@@ -78,7 +110,7 @@ def verify_confirmation(user_id: int, action_id: str, signature_b64: str | None)
     try:
         key = _load_public_key(public_key_b64)
         signature = base64.b64decode(signature_b64, validate=True)
-        key.verify(signature, confirmation_payload(action_id), ec.ECDSA(hashes.SHA256()))
+        key.verify(signature, payload, ec.ECDSA(hashes.SHA256()))
         return True
     except (KeyNotAllowed, InvalidSignature, ValueError, binascii.Error):
         return False

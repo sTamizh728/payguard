@@ -5,6 +5,7 @@ from app.services.payment_service import (
     create_paypal_order,
     get_paypal_order,
 )
+from app.core.config import settings
 from app.core.database import Base, engine
 from app.services.transaction_service import save_completed_capture
 from app.api.auth import router as auth_router
@@ -123,7 +124,7 @@ async def paypal_connection_test():
 
         return {
             "status": "connected",
-            "environment": "sandbox",
+            "environment": settings.paypal_env,
             "message": "PayPal OAuth authentication successful",
             "token_type": token_data.get("token_type"),
             "expires_in": token_data.get("expires_in"),
