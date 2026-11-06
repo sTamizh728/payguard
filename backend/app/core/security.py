@@ -11,22 +11,14 @@ from app.models.user import User
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-) -> User:
-
-    unauthorized = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired authentication token.",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-    if credentials is None:
-        raise unauthorized
+def user_from_token(token: str | None) -> User | None:
+    """The active user a login token belongs to, or None."""
+    if not token:
+        return None
 
     try:
         payload = jwt.decode(
-            credentials.credentials,
+            token,
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
         )
@@ -34,7 +26,7 @@ def get_current_user(
         user_id = int(payload["sub"])
 
     except (jwt.InvalidTokenError, KeyError, ValueError, TypeError):
-        raise unauthorized
+        return None
 
     with SessionLocal() as db:
         user = db.scalar(
@@ -45,7 +37,23 @@ def get_current_user(
         )
 
         if user is None:
-            raise unauthorized
+            return None
 
         db.expunge(user)
         return user
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> User:
+
+    user = user_from_token(credentials.credentials if credentials else None)
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return user

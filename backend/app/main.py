@@ -14,6 +14,7 @@ from app.api.security import router as security_router
 from app.api.webhooks import router as webhooks_router
 from app.api.shop import router as shop_router
 from app.api.phone import router as phone_router
+from app.api.live import router as live_router
 from app.services import shop_service, webhook_service
 from decimal import Decimal
 from html import escape
@@ -62,6 +63,7 @@ app.include_router(security_router)
 app.include_router(webhooks_router)
 app.include_router(shop_router)
 app.include_router(phone_router)
+app.include_router(live_router)
 
 @app.get("/api/paypal/payment-success")
 async def paypal_payment_success(token: str):

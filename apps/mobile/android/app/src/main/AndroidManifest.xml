@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Live voice: loudspeaker + echo-cancelling call-style audio -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <uses-permission android:name="android.permission.INTERNET" />
 
