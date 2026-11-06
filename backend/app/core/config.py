@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     require_device_signature: bool = True
 
     @property
+    def public_base_url(self) -> str:
+        """This server's public address, e.g. https://payguard-api-0msk.onrender.com."""
+        return self.paypal_login_redirect_uri.split("/api/")[0].rstrip("/")
+
+    @property
     def merchant_admins(self) -> set[str]:
         return {
             email.strip().lower()
