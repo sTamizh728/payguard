@@ -12,7 +12,7 @@ check payments, and money moves only after your fingerprint or PayPal checkout, 
 ## Inspiration
 Paying online assumes you can see a screen, read small print and spot a scam. Many people
 can't: blind and low-vision users, older people, and people more comfortable speaking Tamil
-than reading English. I use a screen reader myself. I wanted a PayPal assistant you can simply
+than reading English. I wanted a PayPal assistant you can simply
 talk to, and that protects you better than a screen does: it should never let an AI, a
 scammer or a stolen phone move your money.
 
