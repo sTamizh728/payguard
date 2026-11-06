@@ -29,8 +29,8 @@ async def create_paypal_order(
             "paypal": {
                 "experience_context": {
                     "user_action": "PAY_NOW",
-                    "return_url": "http://localhost:8000/api/paypal/payment-success",
-                    "cancel_url": "http://localhost:8000/api/paypal/payment-cancel",
+                    "return_url": f"{settings.public_base_url}/api/paypal/payment-success",
+                    "cancel_url": f"{settings.public_base_url}/api/paypal/payment-cancel",
                 }
             }
         },
