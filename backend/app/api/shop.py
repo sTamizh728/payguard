@@ -14,6 +14,10 @@ class CartRequest(BaseModel):
     quantity: int = Field(ge=0, le=shop_service.MAX_QUANTITY)  # 0 removes
 
 
+class CompleteRequest(BaseModel):
+    order_id: str = Field(min_length=5, max_length=50)
+
+
 class ClaimRequest(BaseModel):
     code: str = Field(min_length=6, max_length=6)
 
@@ -80,6 +84,17 @@ async def checkout(current_user: User = Depends(get_current_user)):
     except shop_service.ShopError as error:
         raise HTTPException(status_code=400, detail=str(error))
     return {"code": order["code"], "total": f"{order['total']:.2f}", "approval_url": order["approval_url"]}
+
+
+@router.post("/complete")
+async def complete(data: CompleteRequest, current_user: User = Depends(get_current_user)):
+    """PayPal sent the buyer back into the app: collect the payment now."""
+    if shop_service.order_owner(data.order_id) != current_user.id:
+        raise HTTPException(status_code=404, detail="That order was not found.")
+    try:
+        return await shop_service.complete_checkout(data.order_id)
+    except shop_service.ShopError as error:
+        raise HTTPException(status_code=400, detail=str(error))
 
 
 @router.get("/orders")

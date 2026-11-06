@@ -31,6 +31,12 @@ class MeResponse(UserResponse):
     # True for shop owners (MERCHANT_ADMIN_EMAILS); everyone else is a customer.
     is_owner: bool = False
 
+class PayPalFinishRequest(BaseModel):
+    code: str = Field(min_length=10, max_length=2000)
+    state: str = Field(min_length=20, max_length=128)
+    app_nonce: str = Field(min_length=32, max_length=128)
+
+
 class PayPalExchangeRequest(BaseModel):
     code: str = Field(min_length=20, max_length=128)
     app_nonce: str = Field(min_length=32, max_length=128)

@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 
-import {api, BACKEND_URL, LoginExpired} from './src/api';
+import {api, LoginExpired} from './src/api';
 import LockScreen from './src/components/LockScreen';
 import LoginCard from './src/components/LoginCard';
 import TabBar, {TabName} from './src/components/TabBar';
@@ -27,6 +27,7 @@ import {Account, LiveAlert, Session, setUpPhoneSecurity} from './src/session';
 import {colors} from './src/theme';
 
 const APP_AUTH_PREFIX = 'accessiblecommerce://auth';
+const APP_SHOP_PREFIX = 'accessiblecommerce://shop';
 
 const ALERT_SOUNDS: Record<string, string> = {
   payment_received: 'money_received',
@@ -194,18 +195,53 @@ const App = () => {
     }
   };
 
-  // PayPal login ends by opening accessiblecommerce://auth?code=...
-  const handleAuthLink = useCallback(async (url?: string | null) => {
-    if (!url || !url.startsWith(APP_AUTH_PREFIX)) {
+  // The newest account, for links that arrive while the app is running.
+  const accountRef = useRef<Account | null>(null);
+  accountRef.current = account;
+
+  // PayPal sends people straight back into the app, so the phone browser
+  // never has to open our server:
+  //   accessiblecommerce://auth/paypal?code=..&state=..   (Log in with PayPal)
+  //   accessiblecommerce://shop/paid?token=ORDER_ID       (checkout approved)
+  //   accessiblecommerce://shop/cancel                    (checkout cancelled)
+  const handleAppLink = useCallback(async (url?: string | null) => {
+    if (!url) {
+      return;
+    }
+    const params = readQuery(url);
+
+    if (url.startsWith(APP_SHOP_PREFIX)) {
+      const current = accountRef.current;
+      setTab('shop');
+      if (url.startsWith(`${APP_SHOP_PREFIX}/cancel`)) {
+        setAuthMessage('Payment cancelled. No money was taken.');
+        return;
+      }
+      if (!current || !params.token) {
+        setAuthMessage('Please log in, then open the order in Shop to pay.');
+        return;
+      }
+      setAuthMessage('Finishing your PayPal payment...');
+      try {
+        await api('/api/shop/complete', current.token, {body: {order_id: params.token}});
+        setAuthMessage('Payment complete. Thank you!');
+        playSound('payment_sent');
+      } catch (error) {
+        setAuthMessage(error instanceof Error ? error.message : 'The payment could not be finished.');
+        playSound('failed');
+      }
       return;
     }
 
-    const params = readQuery(url);
+    if (!url.startsWith(APP_AUTH_PREFIX)) {
+      return;
+    }
+
     const nonce = pendingNonce.current;
     pendingNonce.current = null;
 
     if (params.error) {
-      setAuthMessage(LOGIN_ERRORS[params.error] ?? 'PayPal login failed.');
+      setAuthMessage(LOGIN_ERRORS[params.error] ?? 'PayPal login was cancelled.');
       return;
     }
 
@@ -216,9 +252,14 @@ const App = () => {
 
     setAuthBusy(true);
     try {
-      const data = await api('/api/auth/paypal/exchange', null, {
-        body: {code: params.code, app_nonce: nonce},
-      });
+      // New flow: PayPal's own code + state. Old flow: our one-time code.
+      const data = params.state
+        ? await api('/api/auth/paypal/finish', null, {
+            body: {code: params.code, state: params.state, app_nonce: nonce},
+          })
+        : await api('/api/auth/paypal/exchange', null, {
+            body: {code: params.code, app_nonce: nonce},
+          });
       await finishLogin(data.access_token);
     } catch (error) {
       setAuthMessage(error instanceof Error ? error.message : 'PayPal login failed.');
@@ -229,11 +270,11 @@ const App = () => {
 
   useEffect(() => {
     const subscription = Linking.addEventListener('url', event =>
-      handleAuthLink(event.url),
+      handleAppLink(event.url),
     );
-    Linking.getInitialURL().then(handleAuthLink);
+    Linking.getInitialURL().then(handleAppLink);
     return () => subscription.remove();
-  }, [handleAuthLink]);
+  }, [handleAppLink]);
 
   const startPayPalLogin = async () => {
     const nonce = makeNonce();
@@ -241,12 +282,12 @@ const App = () => {
     setAuthMessage('Opening PayPal...');
 
     try {
-      await Linking.openURL(
-        `${BACKEND_URL}/api/auth/paypal/start?app_nonce=${nonce}`,
-      );
+      // Ask our server for PayPal's address, then open paypal.com directly.
+      const {url} = await api(`/api/auth/paypal/login-url?app_nonce=${nonce}`, null);
+      await Linking.openURL(url);
     } catch {
       pendingNonce.current = null;
-      setAuthMessage('Could not open the browser for PayPal login.');
+      setAuthMessage('Could not open PayPal login. Please try again.');
     }
   };
 

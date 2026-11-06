@@ -423,8 +423,9 @@ async def create_paypal_item_order(
                         "user_action": "PAY_NOW",
                         "shipping_preference": "NO_SHIPPING",
                         "brand_name": "PayGuard Shop",
-                        "return_url": f"{settings.public_base_url}/api/paypal/payment-success",
-                        "cancel_url": f"{settings.public_base_url}/api/paypal/payment-cancel",
+                        # Back into the app, not to a web page on our server.
+                        "return_url": settings.app_shop_return_uri,
+                        "cancel_url": settings.app_shop_cancel_uri,
                     }}},
                 },
             )

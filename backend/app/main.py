@@ -68,43 +68,12 @@ async def paypal_payment_success(token: str):
     The token query parameter contains the PayPal order ID.
     """
     try:
-        result = await capture_paypal_order(token)
-
-        if result["status"] != "COMPLETED":
-            return {
-                "payment": "not_completed",
-                "order_id": result["order_id"],
-                "paypal_status": result["status"],
-                "captures": result["captures"],
-            }
-
-        # Record each completed capture so it shows in history and can be refunded.
-        # Saving is idempotent, so reloading this page never creates duplicates.
-        for capture in result["captures"]:
-            if capture.get("status") == "COMPLETED":
-                save_completed_capture(
-                    result["order_id"],
-                    capture,
-                    payer_email=result.get("payer_email"),
-                    payer_id=result.get("payer_id"),
-                )
-
-        # A PayGuard Shop order: mark it paid and tell the buyer in the app.
-        order = shop_service.mark_paid(result["order_id"])
-        if order is not None and order.user_id is not None:
-            webhook_service.add_notification(
-                order.user_id,
-                "order_paid",
-                f"Order {order.code} is paid: {order.summary or order.product_id}, "
-                f"${order.total:.2f}.",
-            )
-
+        await shop_service.complete_checkout(token)
         return _result_page(
             "Payment complete",
             "Thank you! Your PayPal payment is done. You can go back to PayGuard now.",
         )
-
-    except RuntimeError:
+    except shop_service.ShopError:
         return _result_page(
             "Payment not finished",
             "PayPal could not complete this payment. Nothing was charged twice. "

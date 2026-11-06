@@ -412,3 +412,53 @@ def test_phone_orders_flag(world, monkeypatch):
     monkeypatch.setattr(settings, "twilio_phone_number", "+15550001111")
     body = world.client.get("/api/shop/products").json()
     assert body["phone_orders"] is True and body["phone_number"] == "+15550001111"
+
+
+# ---- checkout returns into the app ----
+
+def test_complete_checkout_from_the_app(world, catalog, monkeypatch):
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    world.client.post("/api/shop/checkout")
+    captured, saved = [], []
+
+    async def capture(order_id):
+        captured.append(order_id)
+        return {"order_id": order_id, "status": "COMPLETED", "payer_email": "b@x.test", "payer_id": "P1",
+                "captures": [{"capture_id": "CAP1", "status": "COMPLETED", "amount": "19.99", "currency": "USD"}]}
+
+    monkeypatch.setattr(payment_service, "capture_paypal_order", capture)
+    from app.services import transaction_service
+    monkeypatch.setattr(transaction_service, "save_completed_capture",
+                        lambda order_id, capture, **k: saved.append((order_id, capture["capture_id"])))
+
+    response = world.client.post("/api/shop/complete", json={"order_id": "PPORDER1"})
+
+    assert response.status_code == 200 and response.json()["order"]["status"] == "PAID"
+    assert captured == ["PPORDER1"] and saved == [("PPORDER1", "CAP1")]
+    assert webhook_service.list_for(1, is_owner=False)[0]["kind"] == "order_paid"
+
+
+def test_cannot_complete_someone_elses_order(world, catalog):
+    assert world.client.post("/api/shop/complete", json={"order_id": "NOT-MINE-1"}).status_code == 404
+
+
+def test_checkout_returns_into_the_app(monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(201, json={"id": "O1", "links": [{"rel": "payer-action", "href": "https://pp/a"}]})
+
+    async def token():
+        return {"access_token": "t"}
+
+    monkeypatch.setattr(payment_service, "get_access_token", token)
+    transport = httpx.MockTransport(handler)
+    real = httpx.AsyncClient
+    monkeypatch.setattr(payment_service.httpx, "AsyncClient", lambda *a, **k: real(*a, **{**k, "transport": transport}))
+    asyncio.run(payment_service.create_paypal_item_order([("Mug", Decimal("12.00"), 1)], "shop-2"))
+
+    import json
+    context = json.loads(seen[0].content)["payment_source"]["paypal"]["experience_context"]
+    assert context["return_url"] == "accessiblecommerce://shop/paid"
+    assert context["cancel_url"] == "accessiblecommerce://shop/cancel"
