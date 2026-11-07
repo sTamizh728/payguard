@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     app_pay_return_uri: str = "accessiblecommerce://pay/done"
     app_pay_cancel_uri: str = "accessiblecommerce://pay/cancel"
 
+    # Google Shopping results through SerpAPI, for "find the best products" (optional).
+    serpapi_key: str | None = None
+
     @property
     def public_base_url(self) -> str:
         """This server's public address, e.g. https://payguard-api-0msk.onrender.com."""

@@ -212,6 +212,7 @@ def _view(order: ShopOrder) -> dict:
         "delivery_by": order.delivery_by,
         "paid_at": order.paid_at.isoformat() if order.paid_at else None,
         "transaction_id": order.transaction_id,
+        "ship_to": order.ship_to,
     }
 
 
@@ -290,13 +291,20 @@ async def checkout_cart(user_id: int) -> dict:
     if cart["total"] > CART_MAX_TOTAL:
         raise ShopError(f"For your safety, one order can be up to ${CART_MAX_TOTAL:.0f}.")
 
+    from app.services import address_service
+
+    address = address_service.get(user_id)
+    if address is None:
+        raise ShopError("Please add your delivery address first: Shop, Delivery address.")
+
     with SessionLocal() as db:
         code = _new_code(db)
 
     lines = [(i["title"], i["price"], i["quantity"]) for i in cart["items"]]
     try:
         paypal = await payment_service.create_paypal_item_order(
-            lines, reference=f"shop-{code}-{secrets.token_hex(4)}"
+            lines, reference=f"shop-{code}-{secrets.token_hex(4)}",
+            shipping=address_service.paypal_shipping(address),
         )
     except RuntimeError:
         raise ShopError("PayPal could not create the order right now.") from None
@@ -314,6 +322,7 @@ async def checkout_cart(user_id: int) -> dict:
                 for i in cart["items"]
             ]),
             delivery_by=expected_delivery([i.get("shipping") for i in cart["items"]]).isoformat(),
+            ship_to=address_service.one_line(address)[:400],
         ))
         for item in db.scalars(select(CartItem).where(CartItem.user_id == user_id)).all():
             db.delete(item)

@@ -111,6 +111,47 @@ def order_receipt(code: str, current_user: User = Depends(get_current_user)):
     return found
 
 
+class AddressRequest(BaseModel):
+    full_name: str = Field(min_length=1, max_length=100)
+    line1: str = Field(min_length=1, max_length=150)
+    line2: str | None = Field(default=None, max_length=150)
+    city: str = Field(min_length=1, max_length=80)
+    state: str | None = Field(default=None, max_length=80)
+    postal_code: str = Field(min_length=1, max_length=20)
+    country_code: str = Field(min_length=2, max_length=2)
+    phone: str | None = Field(default=None, max_length=20)
+
+
+@router.get("/web")
+async def web_products(q: str = Query(min_length=2, max_length=100), current_user: User = Depends(get_current_user)):
+    """Top-rated products from Google Shopping with store links (bought on the store's site)."""
+    from app.services import address_service, web_shop_service
+
+    address = address_service.get(current_user.id)
+    country = (address or {}).get("country_code") or "us"
+    try:
+        return {"results": await web_shop_service.find_best(q, country), "country": country}
+    except web_shop_service.WebShopError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+@router.get("/address")
+def get_address(current_user: User = Depends(get_current_user)):
+    from app.services import address_service
+
+    return {"address": address_service.get(current_user.id)}
+
+
+@router.put("/address")
+def put_address(data: AddressRequest, current_user: User = Depends(get_current_user)):
+    from app.services import address_service
+
+    try:
+        return {"address": address_service.save(current_user.id, data.model_dump())}
+    except address_service.AddressError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
 @router.post("/claim")
 def claim(data: ClaimRequest, current_user: User = Depends(get_current_user)):
     """Open an order made by phone call, using the code read out on the call."""

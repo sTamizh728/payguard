@@ -80,7 +80,7 @@ def _view(row: FriendPayment) -> dict:
 
 
 async def start(user, to_email: str, amount: Decimal) -> dict:
-    contact = contacts.find_by_email(to_email)
+    contact = contacts.find_by_email(to_email, user.id)
     if contact is None:
         raise FriendPayError("Please choose someone from your contacts.")
     if contact["email"] == user.email.strip().lower():
