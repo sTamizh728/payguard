@@ -299,6 +299,22 @@ def _save_paypal(user_id: int, vault_id: str, payer_email: str | None) -> None:
         db.commit()
 
 
+def _payer_is_user(user_id: int, payer_email: str | None) -> bool:
+    from app.models.user import User
+
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+    return bool(
+        user is not None and user.paypal_user_id and payer_email
+        and payer_email.strip().lower() == user.email.strip().lower()
+    )
+
+
+def _saved_payer_email(user_id: int) -> str | None:
+    with SessionLocal() as db:
+        return db.scalar(select(SavedPayPal.payer_email).where(SavedPayPal.user_id == user_id))
+
+
 def forget_paypal(user_id: int) -> None:
     with SessionLocal() as db:
         for row in db.scalars(select(SavedPayPal).where(SavedPayPal.user_id == user_id)).all():
@@ -376,7 +392,14 @@ async def checkout_cart(user_id: int, use_saved_paypal: bool = False, expected_t
     if vault_id:
         from app.services import transaction_service, webhook_service
 
-        transaction_service.save_completed_capture(paypal["order_id"], {**paid_capture, "status": "COMPLETED"})
+        if paid_capture.get("status") == "COMPLETED":
+            # Recorded with the payer, so the buyer sees it in purchases and can ask for a refund.
+            try:
+                transaction_service.save_completed_capture(
+                    paypal["order_id"], paid_capture, payer_email=_saved_payer_email(user_id),
+                )
+            except ValueError:
+                pass  # the order is still paid; only the refund record is missing
         order = mark_paid(paypal["order_id"], paid_capture.get("capture_id"))
         webhook_service.add_notification(user_id, "order_paid", confirmation_text(order))
         return {"code": code, "total": cart["total"], "summary": summary, "approval_url": None,
@@ -402,16 +425,22 @@ async def complete_checkout(paypal_order_id: str) -> dict:
 
     for capture in result["captures"]:
         if capture.get("status") == "COMPLETED":
-            transaction_service.save_completed_capture(
-                result["order_id"], capture,
-                payer_email=result.get("payer_email"), payer_id=result.get("payer_id"),
-            )
+            try:
+                transaction_service.save_completed_capture(
+                    result["order_id"], capture,
+                    payer_email=result.get("payer_email"), payer_id=result.get("payer_id"),
+                )
+            except ValueError:
+                pass  # odd capture data: the order is still marked paid below
 
     capture_id = next((c["capture_id"] for c in result["captures"] if c.get("status") == "COMPLETED"), None)
     order = mark_paid(result["order_id"], capture_id)
     if order is not None and order.user_id is not None and result.get("vault_id"):
-        # The buyer agreed in PayPal: next time, PIN + fingerprint is enough.
-        _save_paypal(order.user_id, result["vault_id"], result.get("payer_email"))
+        # The buyer agreed in PayPal: next time, PIN + fingerprint is enough - but only
+        # if the payer IS this PayGuard user (PayPal-proven email). Someone who paid
+        # another person's order link must never become that person's saved PayPal.
+        if _payer_is_user(order.user_id, result.get("payer_email")):
+            _save_paypal(order.user_id, result["vault_id"], result.get("payer_email"))
     if order is not None and order.user_id is not None:
         webhook_service.add_notification(
             order.user_id, "order_paid", confirmation_text(order),

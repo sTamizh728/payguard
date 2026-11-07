@@ -220,9 +220,6 @@ async def handle_message(user: User, text: str, understand) -> ChatReply:
 
     role = "owner" if is_merchant_admin(user) else "customer"
 
-    if role == "customer" and not refund_service.can_see_purchases(user):
-        return ChatReply(PAYPAL_LOGIN_NEEDED)
-
     try:
         intent = await understand(text, role)
     except Exception as error:
@@ -251,6 +248,10 @@ async def handle_message(user: User, text: str, understand) -> ChatReply:
     if role == "customer":
         # Customer tools only. Owner actions are never run for a customer,
         # whatever the AI answers.
+        # Purchases are matched by the PayPal-proven email: an email/password
+        # sign-up could type anyone's email, so it never sees purchases.
+        if action in ("show_my_purchases", "request_refund") and not refund_service.can_see_purchases(user):
+            return ChatReply(PAYPAL_LOGIN_NEEDED)
         if action == "show_my_purchases":
             return _show_purchases(user)
         if action == "request_refund":
@@ -1201,7 +1202,7 @@ async def _address_answer(user: User, session: ChatSession, text: str) -> ChatRe
         if wanted and said & {"change", "wrong", "fix", "edit", "மாற்று"}:
             session.address_fix_one = True
             return _ask(session, wanted)
-        if said & YES_WORDS:
+        if said & YES_WORDS and not said & {"no", "not", "wrong", "dont", "don't", "isn't", "illai", "இல்லை"}:
             try:
                 address_service.save(user.id, session.address)
             except address_service.AddressError as error:

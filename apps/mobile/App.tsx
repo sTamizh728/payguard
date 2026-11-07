@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 
 import {api, LoginExpired} from './src/api';
+import BrandMark from './src/components/BrandMark';
 import LockScreen from './src/components/LockScreen';
 import PinSetup from './src/components/PinSetup';
 import LoginCard from './src/components/LoginCard';
@@ -514,17 +515,22 @@ const App = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
 
       <View style={styles.header}>
-        <View>
-          <Text style={styles.logo}>PAYPAL AI ASSISTANT</Text>
-          <Text style={styles.brand} accessibilityRole="header">
-            PayGuard
-          </Text>
+        <View style={styles.brandRow}>
+          <BrandMark size={34} />
+          <View>
+            <Text style={styles.brand} accessibilityRole="header">
+              PayGuard
+            </Text>
+            <Text style={styles.logo}>{tamil ? 'பாதுகாப்பான PayPal உதவியாளர்' : 'Your safe PayPal assistant'}</Text>
+          </View>
         </View>
         {account && (
-          <Text style={styles.role}>{account.isOwner ? '🔑 Owner' : '👤 Customer'}</Text>
+          <Text style={styles.role} accessibilityLabel={account.isOwner ? 'Signed in as the account owner' : 'Signed in as a customer'}>
+            {account.isOwner ? 'Owner' : 'Customer'}
+          </Text>
         )}
       </View>
 
@@ -565,44 +571,55 @@ const App = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.navy,
+    backgroundColor: colors.page,
   },
   header: {
-    backgroundColor: colors.navy,
-    paddingHorizontal: 20,
-    paddingBottom: 14,
+    backgroundColor: colors.page,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
     // The app draws edge-to-edge: keep the header below the phone's status bar.
-    paddingTop: 14 + (Platform.OS === 'android' ? StatusBar.currentHeight ?? 24 : 0),
+    paddingTop: 10 + (Platform.OS === 'android' ? StatusBar.currentHeight ?? 24 : 0),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
   },
-  logo: {
-    color: '#8BB9FF',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 2,
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexShrink: 1,
   },
   brand: {
-    color: '#FFFFFF',
-    fontSize: 22,
+    color: colors.ink,
+    fontSize: 21,
     fontWeight: '800',
-    marginTop: 2,
+    letterSpacing: -0.4,
+  },
+  logo: {
+    color: colors.muted,
+    fontSize: 13,
   },
   role: {
-    color: '#FFFFFF',
-    fontSize: 14,
+    color: colors.brand,
+    fontSize: 13,
     fontWeight: '700',
-    backgroundColor: '#263449',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    backgroundColor: colors.brandSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    overflow: 'hidden',
   },
   banner: {
     backgroundColor: colors.warnBg,
     color: colors.warn,
-    padding: 10,
-    fontSize: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 15,
+    lineHeight: 21,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
   },
   body: {
     flex: 1,

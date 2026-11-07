@@ -1,7 +1,7 @@
 import React from 'react';
 import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 
-import {colors} from '../theme';
+import {colors, TOUCH} from '../theme';
 
 export type TabName = 'home' | 'assistant' | 'shop' | 'send' | 'history' | 'profile';
 
@@ -11,15 +11,16 @@ type Props = {
   tamil: boolean;
 };
 
-const TABS: {name: TabName; icon: string; en: string; ta: string}[] = [
-  {name: 'home', icon: '🏠', en: 'Home', ta: 'முகப்பு'},
-  {name: 'assistant', icon: '💬', en: 'Chat', ta: 'அரட்டை'},
-  {name: 'shop', icon: '🛒', en: 'Shop', ta: 'கடை'},
-  {name: 'send', icon: '💸', en: 'Send', ta: 'அனுப்பு'},
-  {name: 'history', icon: '📍', en: 'Track', ta: 'கண்காணி'},
-  {name: 'profile', icon: '👤', en: 'Profile', ta: 'சுயவிவரம்'},
+const TABS: {name: TabName; en: string; ta: string}[] = [
+  {name: 'home', en: 'Home', ta: 'முகப்பு'},
+  {name: 'assistant', en: 'Talk', ta: 'பேசு'},
+  {name: 'shop', en: 'Shop', ta: 'கடை'},
+  {name: 'send', en: 'Send', ta: 'அனுப்பு'},
+  {name: 'history', en: 'Track', ta: 'கண்காணி'},
+  {name: 'profile', en: 'Me', ta: 'நான்'},
 ];
 
+/** Plain words, a bar over the chosen tab. Large fonts still fit on one line. */
 const TabBar = ({current, onChange, tamil}: Props) => (
   <View style={styles.bar} accessibilityRole="tablist">
     {TABS.map((tab, index) => {
@@ -32,13 +33,13 @@ const TabBar = ({current, onChange, tamil}: Props) => (
           accessibilityRole="tab"
           accessibilityLabel={`${label}, tab ${index + 1} of ${TABS.length}`}
           accessibilityState={{selected}}
-          style={[styles.tab, selected && styles.tabSelected]}>
-          <Text style={styles.icon} importantForAccessibility="no">
-            {tab.icon}
-          </Text>
+          style={styles.tab}>
+          <View style={[styles.marker, selected && styles.markerOn]} />
           <Text
-            style={[styles.label, selected && styles.labelSelected]}
-            numberOfLines={1}>
+            style={[styles.label, selected && styles.labelOn]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.6}>
             {label}
           </Text>
         </TouchableOpacity>
@@ -50,31 +51,37 @@ const TabBar = ({current, onChange, tamil}: Props) => (
 const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
-    backgroundColor: colors.navy,
-    paddingVertical: 6,
-    paddingHorizontal: 4,
+    backgroundColor: colors.card,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingBottom: 4,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 6,
-    borderRadius: 10,
-    minHeight: 52,
+    minHeight: TOUCH + 8,
     justifyContent: 'center',
+    paddingHorizontal: 2,
   },
-  tabSelected: {
-    backgroundColor: '#263449',
+  marker: {
+    position: 'absolute',
+    top: 0,
+    height: 3,
+    width: '60%',
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
   },
-  icon: {
-    fontSize: 20,
+  markerOn: {
+    backgroundColor: colors.brand,
   },
   label: {
-    color: '#C7D2E3',
-    fontSize: 11,
-    marginTop: 2,
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
   },
-  labelSelected: {
-    color: '#FFFFFF',
+  labelOn: {
+    color: colors.brand,
     fontWeight: '800',
   },
 });

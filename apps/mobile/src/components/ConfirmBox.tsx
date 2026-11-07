@@ -55,7 +55,7 @@ const ConfirmBox = ({action, busy, onConfirm, onCancel}: Props) => {
       {warnings.length > 0 && (
         <View accessible accessibilityLiveRegion="polite">
           <Text style={styles.warnTitle} accessibilityRole="header">
-            ⚠️ Scam check: {warnings.length} warning signs
+            Scam check: {warnings.length} warning signs
           </Text>
           {warnings.map(reason => (
             <Text key={reason} style={styles.warnLine}>
@@ -105,8 +105,8 @@ const ConfirmBox = ({action, busy, onConfirm, onCancel}: Props) => {
               : checkout
                 ? 'Pay with PayPal'
                 : wait > 0
-                  ? `🔒 ${wait}s`
-                  : '🔒 Confirm'}
+                  ? `Wait ${wait}s`
+                  : 'Confirm'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity

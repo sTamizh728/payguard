@@ -41,7 +41,7 @@ export const WebProductRow = ({item, tamil}: {item: WebProduct; tamil: boolean})
           accessibilityRole="link"
           accessibilityLabel={t(tamil, `Open ${item.title} at ${item.store}`, `${item.store}-இல் ${item.title} திற`)}
           style={styles.open}>
-          <Text style={styles.openText}>{t(tamil, `Open at ${item.store}`, `${item.store}-இல் திற`)} ↗</Text>
+          <Text style={styles.openText}>{t(tamil, `Open at ${item.store}`, `${item.store}-இல் திற`)}</Text>
         </TouchableOpacity>
       )}
       {(item.compare_link || item.store_link === false) && (
@@ -50,7 +50,7 @@ export const WebProductRow = ({item, tamil}: {item: WebProduct; tamil: boolean})
           accessibilityRole="link"
           accessibilityLabel={t(tamil, `Compare prices for ${item.title} in all stores`, `${item.title} விலைகளை ஒப்பிடு`)}
           style={styles.compare}>
-          <Text style={styles.compareText}>{t(tamil, 'Compare prices in all stores', 'எல்லா கடைகளிலும் விலை ஒப்பிடு')} ↗</Text>
+          <Text style={styles.compareText}>{t(tamil, 'Compare prices in all stores', 'எல்லா கடைகளிலும் விலை ஒப்பிடு')}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -115,7 +115,7 @@ const BestProducts = ({token, tamil}: {token: string; tamil: boolean}) => {
           accessibilityRole="button"
           accessibilityLabel={t(tamil, 'Find best products', 'சிறந்தவற்றைத் தேடு')}
           style={[styles.go, (busy || query.trim().length < 2) && ui.disabled]}>
-          <Text style={styles.goText}>⭐</Text>
+          <Text style={styles.goText}>{t(tamil, 'Find', 'தேடு')}</Text>
         </TouchableOpacity>
       </View>
       {message ? (
@@ -135,14 +135,14 @@ const styles = StyleSheet.create({
   flex: {flex: 1},
   gap: {marginTop: 10},
   go: {
-    backgroundColor: colors.navy,
-    borderRadius: 10,
-    width: 52,
-    height: 50,
+    backgroundColor: colors.brand,
+    borderRadius: 12,
+    minHeight: 48,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  goText: {fontSize: 22},
+  goText: {color: '#FFFFFF', fontSize: 16, fontWeight: '700'},
   item: {
     borderWidth: 1,
     borderColor: colors.line,

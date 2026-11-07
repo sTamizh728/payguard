@@ -1,10 +1,23 @@
 
+import re
 from decimal import Decimal
 
 import httpx
 
 from app.core.config import settings
 from app.integrations.paypal_client import get_access_token
+
+
+# PayPal ids are short upper-case letters and digits. Anything else (like "../")
+# must never reach a PayPal URL path.
+_PAYPAL_ID = re.compile(r"[A-Z0-9-]{3,40}")
+
+
+def safe_id(value: str) -> str:
+    value = str(value or "")
+    if not _PAYPAL_ID.fullmatch(value):
+        raise RuntimeError("That is not a valid PayPal reference.")
+    return value
 
 
 async def create_paypal_order(
@@ -73,7 +86,7 @@ async def capture_paypal_order(order_id: str) -> dict:
 
     url = (
         f"{settings.paypal_base_url.rstrip('/')}"
-        f"/v2/checkout/orders/{order_id}/capture"
+        f"/v2/checkout/orders/{safe_id(order_id)}/capture"
     )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -163,7 +176,7 @@ async def refund_paypal_capture(
 
     url = (
         f"{settings.paypal_base_url.rstrip('/')}"
-        f"/v2/payments/captures/{capture_id}/refund"
+        f"/v2/payments/captures/{safe_id(capture_id)}/refund"
     )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -215,7 +228,7 @@ async def get_paypal_order(order_id: str) -> dict:
 
     url = (
         f"{settings.paypal_base_url.rstrip('/')}"
-        f"/v2/checkout/orders/{order_id}"
+        f"/v2/checkout/orders/{safe_id(order_id)}"
     )
 
     async with httpx.AsyncClient(timeout=20.0) as client:
@@ -332,7 +345,7 @@ async def get_paypal_payout_status(payout_batch_id: str) -> str | None:
 
     url = (
         f"{settings.paypal_base_url.rstrip('/')}"
-        f"/v1/payments/payouts/{payout_batch_id}"
+        f"/v1/payments/payouts/{safe_id(payout_batch_id)}"
     )
 
     async with httpx.AsyncClient(timeout=20.0) as client:

@@ -15,6 +15,8 @@ router = APIRouter(prefix="/api/security", tags=["Security"])
 
 class DeviceKeyRequest(BaseModel):
     public_key: str = Field(min_length=40, max_length=400)
+    # Needed to REPLACE an existing key when the person has a PayGuard PIN.
+    pin: str | None = Field(default=None, max_length=6)
 
 
 def _token_age_seconds(credentials: HTTPAuthorizationCredentials | None) -> float:
@@ -25,7 +27,8 @@ def _token_age_seconds(credentials: HTTPAuthorizationCredentials | None) -> floa
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
         )
-        return time.time() - float(claims["iat"])
+        # auth_time = the real login; a renewed token keeps it (no auth_time = not fresh).
+        return time.time() - float(claims["auth_time"])
     except Exception:
         return float("inf")
 
@@ -65,6 +68,12 @@ def register_device_key(
     current_user: User = Depends(get_current_user),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ):
+    if (settings.require_app_pin and security_service.has_device_key(current_user.id)
+            and not security_service.is_same_key(current_user.id, data.public_key)
+            and pin_service.has_pin(current_user.id)):
+        checked = pin_service.check_pin(current_user.id, data.pin)
+        if not checked.ok:
+            raise HTTPException(status_code=403, detail=f"To use PayGuard on a new phone, type your PayGuard PIN. {checked.message}")
     try:
         security_service.register_device_key(
             current_user.id,
@@ -90,6 +99,12 @@ def _owner_only(user: User) -> None:
 
     if not is_merchant_admin(user):
         raise HTTPException(status_code=403, detail=OWNER_ONLY)
+
+
+@router.get("/challenge")
+def action_challenge(current_user: User = Depends(get_current_user)):
+    """A one-time code the phone signs after fingerprint / PIN (autopay changes)."""
+    return {"challenge": security_service.issue_challenge(current_user.id)}
 
 
 @router.get("/balance-challenge")

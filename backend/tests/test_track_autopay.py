@@ -458,3 +458,20 @@ def test_pending_capture_counts_as_sent(world, monkeypatch):
     from app.services import track_service
 
     assert track_service.payment_history(ANNA)[0]["status_text"] == "Sent, PayPal is still processing it"
+
+
+def test_track_buttons_need_the_fingerprint_signature(world, monkeypatch):
+    from app.services import security_service
+
+    monkeypatch.setattr(settings, "require_device_signature", True)
+    autopay_service.add_manual(1, "Phone bill", "15", "MONTH", (date.today() + timedelta(days=20)).isoformat())
+    assert world.client.post("/api/autopay/1/cancel", json={}).status_code == 403
+    code = security_service.issue_challenge(1)
+    monkeypatch.setattr(security_service, "_verify", lambda user_id, payload, sig: payload == f"payguard-action:{code}".encode() and sig == "SIG")
+    assert world.client.post("/api/autopay/1/cancel", json={"challenge": code, "signature": "BAD"}).status_code == 403
+    code = security_service.issue_challenge(1)
+    monkeypatch.setattr(security_service, "_verify", lambda user_id, payload, sig: payload == f"payguard-action:{code}".encode() and sig == "SIG")
+    r = world.client.post("/api/autopay/1/cancel", json={"challenge": code, "signature": "SIG"})
+    assert r.json()["status"] == "CANCELLED"
+    # A code works once.
+    assert world.client.post("/api/autopay/1/pause", json={"challenge": code, "signature": "SIG"}).status_code == 403

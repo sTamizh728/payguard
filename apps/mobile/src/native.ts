@@ -93,6 +93,14 @@ export const signBalanceCode = async (code: string) => {
   );
 };
 
+/** Fingerprint / PIN, then sign a one-time code for an action (autopay change). */
+export const signActionCode = async (code: string, what: string) => {
+  if (!Native) {
+    throw new Error('Security module missing.');
+  }
+  return Native.signWithAuth(`payguard-action:${code}`, 'Confirm with PayGuard', what);
+};
+
 /** Ask for fingerprint / PIN before showing private information. */
 export const unlock = async (reason: string) => {
   if (!Native) {

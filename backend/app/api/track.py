@@ -11,7 +11,10 @@ from app.agents import chat_flow
 from app.core.config import settings
 from app.core.security import get_current_user
 from app.models.user import User
-from app.services import autopay_service, friend_pay_service, payout_service, pin_service, shop_service, track_service
+from app.services import (
+    autopay_service, friend_pay_service, payout_service, pin_service, security_service, shop_service,
+    track_service,
+)
 
 router = APIRouter(prefix="/api", tags=["Track"])
 
@@ -85,6 +88,9 @@ def add_manual_autopay(data: ManualAutopay, current_user: User = Depends(get_cur
 
 class AutopayChange(BaseModel):
     pin: str | None = Field(default=None, max_length=6)
+    # /api/security/challenge, signed by the phone after the fingerprint.
+    challenge: str | None = Field(default=None, max_length=64)
+    signature: str | None = Field(default=None, max_length=200)
 
 
 @router.post("/autopay/{autopay_id}/{what}")
@@ -102,6 +108,10 @@ async def change_autopay(
             checked = pin_service.check_pin(current_user.id, data.pin if data else None)
             if not checked.ok:
                 raise HTTPException(status_code=403, detail=checked.message)
+        if settings.require_device_signature and not security_service.verify_challenge(
+            current_user.id, data.challenge if data else None, data.signature if data else None, "action",
+        ):
+            raise HTTPException(status_code=403, detail="Your fingerprint check did not match this phone. Nothing was changed.")
         return await autopay_service.change(current_user.id, autopay_id, what)
     except autopay_service.AutopayError as error:
         _fail(error)

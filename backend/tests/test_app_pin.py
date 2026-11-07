@@ -164,3 +164,34 @@ def test_spoken_yes_never_skips_the_pin(world, monkeypatch):
     result = asyncio.run(chat_flow.handle_message(OWNER, "yes, confirm", understand))
     assert "PIN" in result.reply
     assert world.calls == []
+
+
+# ---- a renewed (refreshed) login never counts as a fresh login ----
+
+def test_refreshed_token_keeps_the_old_login_time():
+    from datetime import datetime, timedelta, timezone
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.api.security import _token_age_seconds
+    from app.services.auth_service import create_access_token
+
+    def age(token):
+        return _token_age_seconds(HTTPAuthorizationCredentials(scheme="Bearer", credentials=token))
+
+    fresh = create_access_token(1)
+    renewed = create_access_token(1, datetime.now(timezone.utc) - timedelta(days=3))
+    assert age(fresh) < 60
+    assert age(renewed) > 3 * 24 * 3600 - 60
+    # So with a renewed token the PIN can't be replaced without the old PIN.
+    pin_service.set_pin(1, "4826", None, 0)
+    with pytest.raises(pin_service.PinError):
+        pin_service.set_pin(1, "5937", None, age(renewed))
+
+
+def test_bad_paypal_ids_never_reach_paypal():
+    from app.services import payment_service
+
+    for bad in ("../../v2/payments/captures/X/refund?x=", "abc", "ORDER 1", ""):
+        with pytest.raises(RuntimeError):
+            payment_service.safe_id(bad)
+    assert payment_service.safe_id("5O190127TN364715T") == "5O190127TN364715T"

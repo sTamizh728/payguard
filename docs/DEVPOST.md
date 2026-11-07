@@ -53,7 +53,7 @@ and buttons for everything:
 - **PayPal:** Orders v2 (shop and pay-a-friend), Vault (saved PayPal), Payouts, Subscriptions, Payments v2 refunds,
   Balances (Reporting), Log in with PayPal (OpenID Connect), Webhooks with signature verification.
 - **Also:** SerpAPI (Google Shopping) for best-rated products, Twilio Voice (signed requests) for phone ordering, DummyJSON as a demo catalog.
-- **344 automated tests** with PayPal, Gemini, Twilio and the database faked.
+- **348 automated tests** with PayPal, Gemini, Twilio and the database faked.
 
 ## Safety design
 - Names, amounts and numbers must come from the person's own words, never the AI's.

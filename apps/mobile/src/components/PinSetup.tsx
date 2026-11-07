@@ -90,7 +90,7 @@ const PinSetup = ({token, tamil, change, onDone, onCancel}: Props) => {
         accessibilityState={{disabled: busy, busy}}
         style={[ui.primaryButton, busy && ui.disabled]}>
         <Text style={ui.primaryButtonText}>
-          {busy ? t(tamil, 'Saving…', 'சேமிக்கிறது…') : `🔒 ${t(tamil, 'Save PIN', 'PIN சேமி')}`}
+          {busy ? t(tamil, 'Saving…', 'சேமிக்கிறது…') : t(tamil, 'Save PIN', 'PIN சேமி')}
         </Text>
       </TouchableOpacity>
       {onCancel && (

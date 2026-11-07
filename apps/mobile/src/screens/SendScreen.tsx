@@ -207,7 +207,9 @@ const SendScreen = ({session}: {session: Session}) => {
                     accessibilityState={{checked: selected}}
                     accessibilityHint={hint}
                     style={[styles.contact, selected && styles.contactSelected]}>
-                    <Text style={styles.radio}>{selected ? '◉' : '○'}</Text>
+                    <View style={[styles.radio, selected && styles.radioOn]} importantForAccessibility="no">
+                  {selected && <View style={styles.radioDot} />}
+                </View>
                     <View style={styles.contactText}>
                       <Text style={styles.contactName}>{label}</Text>
                       <Text style={ui.muted}>{hint}</Text>
@@ -239,7 +241,9 @@ const SendScreen = ({session}: {session: Session}) => {
                 accessibilityRole="radio"
                 accessibilityState={{checked: selected}}
                 style={[styles.contact, selected && styles.contactSelected]}>
-                <Text style={styles.radio}>{selected ? '◉' : '○'}</Text>
+                <View style={[styles.radio, selected && styles.radioOn]} importantForAccessibility="no">
+                  {selected && <View style={styles.radioDot} />}
+                </View>
                 <View style={styles.contactText}>
                   <Text style={styles.contactName}>{contact.name}</Text>
                   <Text style={ui.muted} numberOfLines={1}>
@@ -252,7 +256,7 @@ const SendScreen = ({session}: {session: Session}) => {
         </View>
 
         <TouchableOpacity onPress={pickFromPhone} accessibilityRole="button" style={ui.secondaryButton}>
-          <Text style={ui.secondaryButtonText}>📇 {t(tamil, 'Pick from phone contacts', 'போன் தொடர்புகளிலிருந்து தேர்வு')}</Text>
+          <Text style={ui.secondaryButtonText}>{t(tamil, 'Pick from phone contacts', 'போன் தொடர்புகளிலிருந்து தேர்வு')}</Text>
         </TouchableOpacity>
 
         <Text style={ui.label} nativeID="newEmailLabel">
@@ -278,7 +282,7 @@ const SendScreen = ({session}: {session: Session}) => {
           accessibilityRole="button"
           accessibilityState={{disabled: newEmail.trim().length < 3}}
           style={[ui.secondaryButton, newEmail.trim().length < 3 && ui.disabled]}>
-          <Text style={ui.secondaryButtonText}>＋ {t(tamil, 'Add and choose', 'சேர்த்து தேர்வு செய்')}</Text>
+          <Text style={ui.secondaryButtonText}>{t(tamil, 'Add and choose', 'சேர்த்து தேர்வு செய்')}</Text>
         </TouchableOpacity>
 
         <Text style={ui.label} nativeID="amountLabel">
@@ -327,14 +331,28 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   contactSelected: {
-    borderColor: colors.brandBlue,
+    borderColor: colors.brand,
     borderWidth: 2,
-    backgroundColor: '#E8F0FE',
+    backgroundColor: colors.brandSoft,
   },
   radio: {
-    fontSize: 22,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.edge,
     marginRight: 12,
-    color: colors.brandBlue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioOn: {
+    borderColor: colors.brand,
+  },
+  radioDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.brand,
   },
   contactText: {
     flex: 1,
