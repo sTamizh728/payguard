@@ -93,6 +93,24 @@ courier tracking, phone ordering with a Twilio number, and more Indian languages
 react-native, kotlin, android, python, fastapi, postgresql, gemini, gemini-live, paypal,
 paypal-orders, paypal-payouts, paypal-subscriptions, paypal-webhooks, twilio, render, neon
 
+## Testing instructions (paste into Devpost's private testing field)
+1. Install the Android app: download `PayGuard.apk` from
+   https://github.com/sTamizh728/payguard/releases (Android 9 or newer; allow "install
+   unknown apps" for your browser). The server is online; no setup needed. The first request
+   after a quiet period can take up to 50 seconds while the free server wakes up.
+2. Open PayGuard, unlock with your phone's PIN/fingerprint, tap **Log in with PayPal** and use
+   one of these PayPal **sandbox** test accounts (test money only):
+   - Buyer 1: EMAIL_1 / PASSWORD_1
+   - Buyer 2: EMAIL_2 / PASSWORD_2
+   - Shop owner (send from the PayGuard wallet, refunds, balance): OWNER_EMAIL / OWNER_PASSWORD
+   Your own sandbox personal account also works.
+3. Choose a 4-6 digit PayGuard PIN when asked.
+4. Try: **Talk → Live conversation** and say "find wireless earbuds", "add number 2 to my
+   cart", "checkout" (PayGuard asks your address one question at a time). Pay once in PayPal;
+   the next order is paid with your PIN and fingerprint only.
+5. Also try: Shop → Best picks ("earbuds under 3000"), Send → My own PayPal, Track → Autopay →
+   Daily News (renews daily), and "show my payment history".
+
 ## Links
 - Code: https://github.com/sTamizh728/payguard
 - Video: (your YouTube link)
