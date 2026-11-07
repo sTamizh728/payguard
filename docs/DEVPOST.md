@@ -6,8 +6,8 @@ Copy each section into the matching Devpost field.
 PayGuard: talk to PayPal
 
 ## Elevator pitch (one line)
-A voice-first PayPal assistant in English and Tamil: talk to send money, shop, refund and
-check payments, and money moves only after your fingerprint or PayPal checkout, never the AI.
+A voice-first mini PayPal in English and Tamil: talk to send money, shop, set up and track
+autopays and deliveries. Money moves only after your PIN + fingerprint or PayPal checkout, never the AI.
 
 ## Inspiration
 Paying online assumes you can see a screen, read small print and spot a scam. Many people
@@ -23,13 +23,19 @@ and buttons for everything:
 - **Shop by voice:** search products, hear prices, ratings and real reviews, add to cart, pay
   in PayPal checkout, then get an order confirmation, expected delivery date and a receipt
   with the PayPal transaction ID.
-- **Send money:** "Send $20 to Priya" uses PayPal Payouts after a scam check and your
-  fingerprint or PIN.
+- **Send money:** "Send $20 to Priya" uses PayPal Payouts after a scam check, your own
+  PayGuard PIN and your fingerprint. Anyone can also pay a friend from their own PayPal
+  (approved on PayPal's page).
+- **Autopay:** "Set up autopay for StreamBox" starts a real PayPal subscription; PayGuard
+  shows the next charge and last payment, alerts on every charge or failure, and pauses,
+  resumes or cancels it by voice. Autopays set up elsewhere can be added for reminders.
+- **Track:** one tab for payment history, autopays, shop orders and expected deliveries,
+  also by voice ("show my payment history", "where is my order?").
 - **Stay informed:** "Did any payment fail?", PayPal balance behind a fingerprint, and
   real-time alerts from verified PayPal webhooks (money received, payment returned, disputes).
 - **Refunds:** owners refund in part or in full; customers ask for refunds by voice and the
   owner approves.
-- **Log in with PayPal**, the app locked by the phone's PIN or fingerprint on every open, and
+- **Log in with PayPal**, your own PayGuard PIN, the app locked by the phone's PIN or fingerprint on every open, and
   a phone-call ordering menu (English and Tamil) ready for a Twilio number.
 
 ## How we built it
@@ -39,16 +45,18 @@ and buttons for everything:
 - **Server:** Python FastAPI on Render with PostgreSQL on Neon.
 - **AI:** Gemini 3 Flash with function calling for chat, Gemini Live
   (gemini-3.1-flash-live-preview) for voice. The AI only chooses a tool; my code runs it.
-- **PayPal:** Orders v2, Payouts, Payments v2 refunds, Balances (Reporting), Log in with
-  PayPal (OpenID Connect), Webhooks with signature verification.
+- **PayPal:** Orders v2 (shop and pay-a-friend), Payouts, Subscriptions, Payments v2 refunds,
+  Balances (Reporting), Log in with PayPal (OpenID Connect), Webhooks with signature verification.
 - **Also:** Twilio Voice (signed requests) for phone ordering, DummyJSON as a demo catalog.
-- **246 automated tests** with PayPal, Gemini, Twilio and the database faked.
+- **296 automated tests** with PayPal, Gemini, Twilio and the database faked.
 
 ## Safety design
 - Names, amounts and numbers must come from the person's own words, never the AI's.
 - Prompt-injection phrases are blocked in code before the AI sees them, typed or spoken.
-- Every payout and refund needs a signature from the phone's secure hardware, verified by the
+- Every payout, refund and autopay change needs your own PayGuard PIN (Argon2-hashed, locks
+  after 5 wrong tries) AND a signature from the phone's secure hardware, verified by the
   server: a stolen login, a replayed signature or a spoken "yes" cannot move money.
+- Coming back from PayPal proves nothing: the server reads the real status from PayPal.
 - A scam guard (new recipient, pressure words, big amounts, rapid payments) locks Confirm for
   30 seconds, enforced by the server.
 - Limits, idempotency keys, and "unknown" instead of blind retries on timeouts.
@@ -72,12 +80,12 @@ Give the AI as little power as possible: let it understand, and let plain code d
 the safest confirmation is one the server can verify cryptographically, not a button.
 
 ## What's next for PayGuard
-Go live with real PayPal (Payouts approval and app review), a real merchant catalog, phone
-ordering with a Twilio number, more Indian languages, and subscription renewal alerts.
+Go live with real PayPal (Payouts approval and app review), a real merchant catalog, live
+courier tracking, phone ordering with a Twilio number, and more Indian languages.
 
 ## Built with
 react-native, kotlin, android, python, fastapi, postgresql, gemini, gemini-live, paypal,
-paypal-orders, paypal-payouts, paypal-webhooks, twilio, render, neon
+paypal-orders, paypal-payouts, paypal-subscriptions, paypal-webhooks, twilio, render, neon
 
 ## Links
 - Code: https://github.com/sTamizh728/payguard

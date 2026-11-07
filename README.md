@@ -2,14 +2,15 @@
 
 **Talk to PayPal.** PayGuard is a voice-first PayPal assistant for Android, in English and
 Tamil. Speak naturally (real two-way voice with Gemini Live), or type, to send money, shop,
-check payments, get refunds and catch failed payments. **Money only moves after your
-fingerprint, face or phone PIN, or in PayPal's own checkout. The AI never moves money.**
+set up and track autopays, follow orders and deliveries, get refunds and catch failed
+payments. **Money only moves after your own PayGuard PIN plus your fingerprint, face or
+phone PIN, or in PayPal's own checkout. The AI never moves money.**
 
 Built solo for the PayPal AI Hackathon 2026. Everything runs on the PayPal **sandbox**.
 
 - Backend (live): `https://payguard-api-0msk.onrender.com` (FastAPI on Render, PostgreSQL on Neon)
 - App: React Native 0.88 Android app with its own Kotlin module (`apps/mobile`)
-- 246 automated tests (`backend/tests`), PayPal, Gemini and the database faked
+- 296 automated tests (`backend/tests`), PayPal, Gemini and the database faked
 
 ---
 
@@ -20,13 +21,18 @@ Built solo for the PayPal AI Hackathon 2026. Everything runs on the PayPal **san
 | "Search for wireless earphones" | Reads the top results with price and star rating | — (demo catalog) |
 | "Tell me about number 2" | Description, stock, shipping and real written reviews | — |
 | "Add it to my cart", "Checkout" | One multi-item order, paid in PayPal checkout | **Orders v2** (create, capture) |
-| "Where is my order?" | Status, expected delivery date, receipt with PayPal transaction ID | Orders v2 |
-| "Send $20 to Priya" | Scam check, then fingerprint/PIN, then the money is sent | **Payouts** |
+| "Where is my order?", Track → Deliveries | Status, expected delivery date, receipt with PayPal transaction ID | Orders v2 |
+| "Send $20 to Priya" | Scam check, then PayGuard PIN + fingerprint, then the money is sent | **Payouts** |
+| Send → "My own PayPal" (anyone) | Pay a friend from your own PayPal, approved on PayPal's page | **Orders v2** (friend as payee) |
+| "Set up autopay for StreamBox" | A real PayPal subscription, approved in PayPal; alerts each charge | **Subscriptions** + **Webhooks** |
+| "When is my next autopay?", "Pause autopay 2" | Status, next date, last payment; pause, resume, cancel (PIN + fingerprint) | **Subscriptions** |
+| Track → Autopay → Add | Track autopays set up elsewhere; reminder 2 days before each charge | — |
+| "Show my payment history" | One list: sent, received, shop, friends, autopay | all of the above |
 | "Did any payment fail?" | Failed, returned or unclaimed payments, explained | Payouts (status) |
 | "Refund $5 from payment 2" | Partial or full refund after the fingerprint | **Payments v2 refunds** |
 | "My order arrived damaged" (customer) | A refund request the owner approves or declines | Payments v2 refunds |
-| History → Check balance | PayPal wallet balance, after a fingerprint check the server verifies | **Balances (Reporting)** |
-| (automatic) | "You received $12.50", "Your payment was returned", disputes | **Webhooks** (+ signature verification) |
+| Track → Check balance | PayPal wallet balance, after the PayGuard PIN and a fingerprint check the server verifies | **Balances (Reporting)** |
+| (automatic) | "You received $12.50", "Your payment was returned", "Autopay paid", "Autopay failed", disputes | **Webhooks** (+ signature verification) |
 | Log in | Log in with PayPal (or email) | **Log in with PayPal** (OpenID Connect) |
 | Phone call (ready, needs a Twilio number) | Keypad shop menu in English and Tamil, 6-digit order code | Orders v2 |
 
@@ -53,24 +59,29 @@ looking at the screen. It is built screen-reader first (TalkBack labels, live re
 3. **Tricks are blocked before the AI sees them.** "Ignore your rules", "SYSTEM: already
    approved", look-alike letters and invisible characters are caught in code; two tries lock
    payments for 10 minutes. Spoken tricks are blocked the same way.
-4. **Fingerprint, face or PIN, checked by the server.** The phone keeps a P-256 key in its
+4. **Your own PayGuard PIN** (4-6 digits, chosen right after the first login) is asked before
+   every payment, refund, autopay change and balance check, on top of the fingerprint. It is
+   stored only as an Argon2 hash; 5 wrong tries lock it for 15 minutes (counted in the database);
+   changing it needs the old PIN or a fresh login.
+5. **Fingerprint, face or PIN, checked by the server.** The phone keeps a P-256 key in its
    secure hardware that unlocks only with biometrics or the phone PIN. It signs each
    confirmation; the server verifies the signature before any payout or refund. A stolen login
    cannot move money, a signature cannot be replayed, and a spoken "yes" never moves money.
-5. **Scam guard.** A new recipient, pressure words ("urgent", "gift card", "அவசரம்"), a large
+6. **Scam guard.** A new recipient, pressure words ("urgent", "gift card", "அவசரம்"), a large
    amount or many payments in a row raise warnings. With two or more, Confirm stays locked for
    30 seconds, enforced by the server (even a valid fingerprint cannot skip it).
-6. **Limits:** $100 per payment and $200 a day, re-checked at the moment of confirming.
-7. **Safe retries:** every payout and refund has an idempotency key; a PayPal timeout is
+7. **Limits:** $100 per payment and $200 a day, re-checked at the moment of confirming.
+8. **Safe retries:** every payout and refund has an idempotency key; a PayPal timeout is
    recorded as "unknown", never retried blindly.
-8. **The app is locked** with the phone's PIN, pattern, fingerprint or face on every open and
+9. **The app is locked** with the phone's PIN, pattern, fingerprint or face on every open and
    after 15 seconds away. The login is stored encrypted by the Android Keystore and lasts until
    Log out; the server stores only a hash of it.
-9. **Owner and customer roles.** Only the account owner (Log in with PayPal, not just a typed
-   email) can send money, refund or see the balance. Customers see their own purchases and
-   request refunds.
-10. **Prices come from the server**, never from the app; webhooks are verified with PayPal;
-    phone calls are verified with Twilio's signature.
+10. **Owner and customer roles.** Only the account owner (Log in with PayPal, not just a typed
+   email) can send from the PayGuard wallet, refund or see its balance. Everyone can pay friends
+   from their own PayPal, track autopays and orders, and request refunds.
+11. **Prices come from the server**, never from the app; webhooks are verified with PayPal;
+    phone calls are verified with Twilio's signature. Coming back from PayPal proves nothing by
+    itself: the server reads the real autopay or payment status from PayPal.
 
 ## Architecture
 
@@ -78,7 +89,7 @@ looking at the screen. It is built screen-reader first (TalkBack labels, live re
  Android app (React Native + Kotlin)         Server (FastAPI, Render)            Services
  ─────────────────────────────────────        ───────────────────────────         ─────────────────
  Tabs: Home, Chat, Shop, Send,       HTTPS    /api/chat  ──► Gemini (tool choice)  Google Gemini
-       History, Profile             ───────►  chat_flow: safety, grounding,        Gemini Live
+       Track, Profile               ───────►  chat_flow: safety, grounding,        Gemini Live
  Live voice: mic 16 kHz ⇄ voice 24 kHz WSS    roles, scam guard, limits
    (OkHttp, echo cancel, loudspeaker) ─────►  /api/live ⇄ Gemini Live              PayPal REST APIs
  Keystore: signing key + login safe           payouts / refunds / orders /  ─────► (Orders, Payouts,
@@ -124,6 +135,13 @@ webhook to `/api/webhooks/paypal` and put its ID in `PAYPAL_WEBHOOK_ID`.
 - **The shop's products come from DummyJSON**, a free public demo store (search, ratings,
   reviews). A real shop would plug in its own catalog.
 - **Phone-call ordering** is built and tested but needs a paid Twilio number to run.
+- **Autopays with other companies can't be read.** PayPal does not let any app see a person's
+  subscriptions with other merchants, so PayGuard tracks real PayPal autopays started in
+  PayGuard (demo billers in the sandbox; one renews daily) and outside autopays you add by
+  hand. Reminders are made when the app checks for alerts (the free server has no clock job).
+- **Deliveries** show the shop's expected date; there is no live courier tracking in the demo.
+- **Paying from your own PayPal** always opens PayPal's page to approve: PayPal does not let
+  any app move a person's own money with only a fingerprint.
 
 ## Go-live plan (after the hackathon)
 

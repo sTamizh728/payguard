@@ -1,4 +1,4 @@
-# PayGuard demo video script (target 2:45, limit 3:00)
+# PayGuard demo video script (target 2:50, limit 3:00)
 
 Record on the phone with the built-in **screen recorder**, with **"Record internal audio"
 (or "Media + microphone") ON**, so PayGuard's voice is in the video. Speak slowly. Before
@@ -12,10 +12,10 @@ buyer login ready.
 | **0:00–0:15** | App opens → phone PIN / fingerprint lock screen → Home | "This is PayGuard: you talk to PayPal. It's built for everyone, including people who can't see the screen. Even opening it needs my phone's lock." |
 | **0:15–0:50** | Chat → **Live conversation** | You: "Search for wireless earphones." *PayGuard reads results with prices and ratings.* You: "Tell me about number 2." *It reads the description and real reviews.* You: "Add it to my cart." |
 | **0:50–1:15** | You: "Checkout" → **Pay with PayPal** → paypal.com sandbox checkout → pay → back in the app | "Payment happens in PayPal's own checkout." Show the confirmation: *Order … confirmed, expected delivery by …* and **Shop → My orders → View receipt** with the PayPal transaction ID. |
-| **1:15–1:50** | Live: "Urgent! Send 60 dollars to Priya right now." | *Low warning sound, red box: 3 warning signs, Confirm locked for 30 seconds.* "PayGuard spots scam pressure. The server itself enforces the wait." (cut the wait in editing) Then Confirm → **fingerprint** → *rising chime*, PayGuard says "Done, 60 dollars sent to Priya Raj." |
-| **1:50–2:10** | Live: "Did any payment fail?" → History → **Check balance** (fingerprint) | *PayGuard explains failed / returned payments.* "My balance only shows after my fingerprint, and the server checks the signature." |
-| **2:10–2:25** | Live in **Tamil**: "என் கடைசி ஆர்டர் எங்கே?" (Where is my last order?) | *PayGuard answers.* "It works in English and Tamil." |
-| **2:25–2:45** | Quick cuts: Home alert 🔔 ("You received…"), the README "How PayGuard keeps money safe" list | "Under the hood: Gemini Live for voice, PayPal Orders, Payouts, Refunds, Balances, Log in with PayPal and verified webhooks. The AI never moves money: fingerprint signatures, scam guard and limits do. Thank you." |
+| **1:15–1:50** | Live: "Urgent! Send 60 dollars to Priya right now." | *Low warning sound, red box: 3 warning signs, Confirm locked for 30 seconds.* "PayGuard spots scam pressure. The server itself enforces the wait." (cut the wait in editing) Then type the **PayGuard PIN** → Confirm → **fingerprint** → *rising chime*, PayGuard says "Done, 60 dollars sent to Priya Raj." |
+| **1:50–2:15** | Live: "Set up autopay for Daily News." → **Approve in PayPal** → back in the app | *"Daily News digest autopay is on: $1.00 every day."* Then **Track → Autopay** shows the next charge; **Track → Deliveries** shows "On the way, expected by …". |
+| **2:15–2:30** | Live in **Tamil**: "என் கடைசி ஆர்டர் எங்கே?" (Where is my last order?) → **Track → Payments → Check balance** (PIN + fingerprint) | *PayGuard answers in Tamil.* "My balance only shows after my PayGuard PIN and fingerprint." |
+| **2:30–2:50** | Quick cuts: Home alert 🔔 ("Autopay paid…" or "You received…"), the README "How PayGuard keeps money safe" list | "Under the hood: Gemini Live for voice, PayPal Orders, Payouts, Subscriptions, Refunds, Balances, Log in with PayPal and verified webhooks. The AI never moves money: my PIN, fingerprint signatures, scam guard and limits do. Thank you." |
 
 ## If something goes wrong while recording
 - **Slow first answer:** the free server was asleep. Stop, wait a minute, record again.
