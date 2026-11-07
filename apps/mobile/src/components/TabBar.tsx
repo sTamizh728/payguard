@@ -9,6 +9,8 @@ type Props = {
   current: TabName;
   onChange: (tab: TabName) => void;
   tamil: boolean;
+  // Height of Android's navigation buttons under the app.
+  bottomInset?: number;
 };
 
 const TABS: {name: TabName; en: string; ta: string}[] = [
@@ -21,8 +23,8 @@ const TABS: {name: TabName; en: string; ta: string}[] = [
 ];
 
 /** Plain words, a bar over the chosen tab. Large fonts still fit on one line. */
-const TabBar = ({current, onChange, tamil}: Props) => (
-  <View style={styles.bar} accessibilityRole="tablist">
+const TabBar = ({current, onChange, tamil, bottomInset = 0}: Props) => (
+  <View style={[styles.bar, {paddingBottom: 4 + bottomInset}]} accessibilityRole="tablist">
     {TABS.map((tab, index) => {
       const selected = tab.name === current;
       const label = tamil ? tab.ta : tab.en;

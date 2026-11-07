@@ -3,7 +3,6 @@ import {
   AccessibilityInfo,
   AppState,
   Linking,
-  Platform,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -13,6 +12,8 @@ import {
 } from 'react-native';
 
 import {api, LoginExpired} from './src/api';
+import {SafeAreaProvider, useSafeAreaInsets} from 'react-native-safe-area-context';
+
 import BrandMark from './src/components/BrandMark';
 import LockScreen from './src/components/LockScreen';
 import PinSetup from './src/components/PinSetup';
@@ -88,6 +89,8 @@ const readQuery = (url: string) => {
 };
 
 const App = () => {
+  // Real system bar sizes: the app draws edge-to-edge (status bar + navigation buttons).
+  const insets = useSafeAreaInsets();
   const [account, setAccount] = useState<Account | null>(null);
   const [tamil, setTamil] = useState(false);
   const [tab, setTab] = useState<TabName>('home');
@@ -517,7 +520,7 @@ const App = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
-      <View style={styles.header}>
+      <View style={[styles.header, {paddingTop: 10 + insets.top}]}>
         <View style={styles.brandRow}>
           <BrandMark size={34} />
           <View>
@@ -555,7 +558,7 @@ const App = () => {
         )}
       </View>
 
-      <TabBar current={tab} onChange={setTab} tamil={tamil} />
+      <TabBar current={tab} onChange={setTab} tamil={tamil} bottomInset={insets.bottom} />
 
       {((locked && account) || restoring) && (
         <LockScreen
@@ -578,7 +581,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 10,
     // The app draws edge-to-edge: keep the header below the phone's status bar.
-    paddingTop: 10 + (Platform.OS === 'android' ? StatusBar.currentHeight ?? 24 : 0),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -630,4 +632,10 @@ const styles = StyleSheet.create({
   },
 });
 
-export default App;
+const Root = () => (
+  <SafeAreaProvider>
+    <App />
+  </SafeAreaProvider>
+);
+
+export default Root;
