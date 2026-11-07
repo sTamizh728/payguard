@@ -76,6 +76,30 @@ async def set_cart(data: CartRequest, current_user: User = Depends(get_current_u
         raise HTTPException(status_code=400, detail=str(error))
 
 
+@router.post("/pay")
+async def pay(current_user: User = Depends(get_current_user)):
+    """
+    Shop tab Pay button. With a saved PayPal it returns a Confirm (PIN + fingerprint);
+    otherwise a PayPal checkout link. Never pays by itself.
+    """
+    from app.agents import chat_flow
+    from app.services import address_service
+
+    if not address_service.get(current_user.id):
+        raise HTTPException(status_code=400, detail="Please add your delivery address first.")
+    try:
+        reply = await chat_flow.start_checkout(current_user, chat_flow._session(current_user.id))
+    except shop_service.ShopError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    return {"reply": reply.reply, "pending_action": reply.pending_action}
+
+
+@router.delete("/saved-paypal")
+def forget_saved_paypal(current_user: User = Depends(get_current_user)):
+    shop_service.forget_paypal(current_user.id)
+    return {"saved_paypal": False}
+
+
 @router.post("/checkout")
 async def checkout(current_user: User = Depends(get_current_user)):
     """No money moves here: the buyer pays in PayPal's own checkout."""

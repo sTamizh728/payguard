@@ -120,6 +120,8 @@ async def capture_paypal_order(order_id: str) -> dict:
         "order_id": data.get("id"),
         "status": data.get("status"),
         "captures": captures,
+        # Set when the buyer agreed to save their PayPal for one-tap payments.
+        "vault_id": _vault_id(data),
         # Who paid: lets a customer see their own purchases later.
         "payer_email": payer.get("email_address"),
         "payer_id": payer.get("payer_id"),
@@ -386,6 +388,8 @@ async def create_paypal_item_order(
     lines: list[tuple[str, Decimal, int]],
     reference: str,
     shipping: dict | None = None,
+    vault_id: str | None = None,
+    save_paypal: bool = False,
 ) -> dict:
     """
     A PayPal order for one or more product lines (name, unit price, quantity).
@@ -412,18 +416,23 @@ async def create_paypal_item_order(
         }
         if ship:
             unit["shipping"] = ship  # PayPal shows the person's own delivery address
-        return {
-            "intent": "CAPTURE",
-            "purchase_units": [unit],
-            "payment_source": {"paypal": {"experience_context": {
-                "user_action": "PAY_NOW",
-                "shipping_preference": "SET_PROVIDED_ADDRESS" if ship else "NO_SHIPPING",
-                "brand_name": "PayGuard Shop",
-                # Back into the app, not to a web page on our server.
-                "return_url": settings.app_shop_return_uri,
-                "cancel_url": settings.app_shop_cancel_uri,
-            }}},
-        }
+        if vault_id:
+            # The buyer's PayPal saved by PayPal earlier: no PayPal page this time.
+            return {"intent": "CAPTURE", "purchase_units": [unit], "payment_source": {"paypal": {"vault_id": vault_id}}}
+        paypal = {"experience_context": {
+            "user_action": "PAY_NOW",
+            "shipping_preference": "SET_PROVIDED_ADDRESS" if ship else "NO_SHIPPING",
+            "brand_name": "PayGuard Shop",
+            # Back into the app, not to a web page on our server.
+            "return_url": settings.app_shop_return_uri,
+            "cancel_url": settings.app_shop_cancel_uri,
+        }}
+        if save_paypal:
+            # Ask PayPal to save this buyer's PayPal for one-tap payments later.
+            paypal["attributes"] = {"vault": {
+                "store_in_vault": "ON_SUCCESS", "usage_type": "MERCHANT", "customer_type": "CONSUMER",
+            }}
+        return {"intent": "CAPTURE", "purchase_units": [unit], "payment_source": {"paypal": paypal}}
 
     async with httpx.AsyncClient(timeout=20.0) as client:
         try:
@@ -452,7 +461,29 @@ async def create_paypal_item_order(
         (link["href"] for link in data.get("links", []) if link.get("rel") == "payer-action"),
         None,
     )
+    if vault_id:
+        # Paid straight away with the saved PayPal (or refused).
+        return {"order_id": data["id"], "approval_url": None, "status": data.get("status"),
+                "captures": _captures(data)}
     if not approval_url:
         raise RuntimeError("PayPal did not return a checkout link.")
 
     return {"order_id": data["id"], "approval_url": approval_url}
+
+
+def _captures(data: dict) -> list[dict]:
+    return [
+        {
+            "capture_id": capture.get("id"),
+            "status": capture.get("status"),
+            "amount": capture.get("amount", {}).get("value"),
+            "currency": capture.get("amount", {}).get("currency_code"),
+        }
+        for unit in data.get("purchase_units", [])
+        for capture in (unit.get("payments") or {}).get("captures", [])
+    ]
+
+
+def _vault_id(data: dict) -> str | None:
+    vault = (((data.get("payment_source") or {}).get("paypal") or {}).get("attributes") or {}).get("vault") or {}
+    return vault.get("id") if vault.get("status", "VAULTED") == "VAULTED" else None

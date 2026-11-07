@@ -10,7 +10,7 @@ Built solo for the PayPal AI Hackathon 2026. Everything runs on the PayPal **san
 
 - Backend (live): `https://payguard-api-0msk.onrender.com` (FastAPI on Render, PostgreSQL on Neon)
 - App: React Native 0.88 Android app with its own Kotlin module (`apps/mobile`)
-- 331 automated tests (`backend/tests`), PayPal, Gemini and the database faked
+- 344 automated tests (`backend/tests`), PayPal, Gemini and the database faked
 
 ---
 
@@ -21,7 +21,7 @@ Built solo for the PayPal AI Hackathon 2026. Everything runs on the PayPal **san
 | "Find the best wireless earbuds under 3000" | Top-rated products from online stores (real price, rating, review count), with links to buy on the store's own site | — (Google Shopping via SerpAPI) |
 | "Search for wireless earphones" | Reads the top results with price and star rating | — (demo catalog) |
 | "Tell me about number 2" | Description, stock, shipping and real written reviews | — |
-| "Add it to my cart", "Checkout" | One multi-item order to your saved delivery address, paid in PayPal checkout | **Orders v2** (create, capture, shipping address) |
+| "Add it to my cart", "Checkout" | No address yet? PayGuard asks it one question at a time (name, street, city, PIN code...), reads it back and saves it. First order: PayPal checkout once, where PayPal can save your account. After that: PayGuard PIN + fingerprint pays, no PayPal page | **Orders v2** (shipping address) + **PayPal Vault** |
 | "Where is my order?", Track → Deliveries | Status, expected delivery date, receipt with PayPal transaction ID | Orders v2 |
 | "Send $20 to Priya" | Scam check, then PayGuard PIN + fingerprint, then the money is sent | **Payouts** |
 | Send → "My own PayPal" (anyone) | Pay a friend from your own PayPal, approved on PayPal's page | **Orders v2** (friend as payee) |

@@ -22,6 +22,9 @@ and buttons for everything:
 
 - **Find the best products:** "find the best wireless earbuds under 3000" ranks real Google
   Shopping results by rating and number of reviews, and links to the stores to buy there.
+- **Checkout by voice:** PayGuard asks the delivery address one question at a time, reads it
+  back and saves it. After the first PayPal checkout (PayPal saves the account with Vault),
+  later orders are paid with just the PayGuard PIN and a fingerprint.
 - **Shop by voice:** search products, hear prices, ratings and real reviews, add to cart, pay
   in PayPal checkout, then get an order confirmation, expected delivery date and a receipt
   with the PayPal transaction ID.
@@ -47,10 +50,10 @@ and buttons for everything:
 - **Server:** Python FastAPI on Render with PostgreSQL on Neon.
 - **AI:** Gemini 3 Flash with function calling for chat, Gemini Live
   (gemini-3.1-flash-live-preview) for voice. The AI only chooses a tool; my code runs it.
-- **PayPal:** Orders v2 (shop and pay-a-friend), Payouts, Subscriptions, Payments v2 refunds,
+- **PayPal:** Orders v2 (shop and pay-a-friend), Vault (saved PayPal), Payouts, Subscriptions, Payments v2 refunds,
   Balances (Reporting), Log in with PayPal (OpenID Connect), Webhooks with signature verification.
 - **Also:** SerpAPI (Google Shopping) for best-rated products, Twilio Voice (signed requests) for phone ordering, DummyJSON as a demo catalog.
-- **331 automated tests** with PayPal, Gemini, Twilio and the database faked.
+- **344 automated tests** with PayPal, Gemini, Twilio and the database faked.
 
 ## Safety design
 - Names, amounts and numbers must come from the person's own words, never the AI's.

@@ -1,11 +1,12 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {AppState, Linking, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
 
-import {api} from '../api';
+import {api, PendingAction} from '../api';
+import ConfirmBox from '../components/ConfirmBox';
 import AddressCard from '../components/AddressCard';
 import BestProducts from '../components/BestProducts';
 import {playSound} from '../native';
-import {Session, t} from '../session';
+import {confirmWithSecurity, Session, t} from '../session';
 import {colors, ui} from '../theme';
 
 type Result = {id: number; title: string; brand?: string; price: string; rating: number; stock: number};
@@ -52,6 +53,8 @@ const ShopScreen = ({session}: {session: Session}) => {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [openReceipt, setOpenReceipt] = useState<string | null>(null);
+  // Pay with the saved PayPal: PIN + fingerprint, no PayPal page.
+  const [pending, setPending] = useState<PendingAction | null>(null);
 
   const run = async (work: () => Promise<void>) => {
     setBusy(true);
@@ -142,12 +145,37 @@ const ShopScreen = ({session}: {session: Session}) => {
 
   const checkout = () =>
     run(async () => {
-      const order = await api('/api/shop/checkout', account.token, {body: {}});
-      setCart({items: [], total: '0.00'});
-      setMessage(t(tamil, `Order ${order.code}: opening PayPal to pay $${order.total}.`,
-        `ஆர்டர் ${order.code}: $${order.total} செலுத்த PayPal திறக்கிறது.`));
-      await openCheckout(order.approval_url);
-      load();
+      const started = await api('/api/shop/pay', account.token, {body: {}});
+      const action: PendingAction | null = started.pending_action;
+      setMessage(started.reply);
+      if (action?.type === 'checkout' && action.url) {
+        // First time: PayPal's page (it can save PayPal for next time).
+        setCart({items: [], total: '0.00'});
+        await openCheckout(action.url);
+        load();
+      } else if (action) {
+        setPending(action);
+        playSound('confirm_needed');
+      }
+    });
+
+  const confirmPay = (pin: string) =>
+    run(async () => {
+      if (!pending) {
+        return;
+      }
+      try {
+        const reply = await confirmWithSecurity(account.token, pending, pin);
+        setPending(reply.pending_action);
+        setMessage(reply.reply);
+        if (reply.event === 'payment_sent') {
+          setCart({items: [], total: '0.00'});
+          load();
+        }
+      } catch (error) {
+        const text = error instanceof Error && error.message ? error.message : 'Not confirmed.';
+        setMessage(`${text} ${t(tamil, 'Nothing was paid.', 'எதுவும் செலுத்தப்படவில்லை.')}`);
+      }
     });
 
   const claim = () =>
@@ -271,6 +299,19 @@ const ShopScreen = ({session}: {session: Session}) => {
       )}
 
       <AddressCard token={account.token} tamil={tamil} />
+
+      {pending && (
+        <ConfirmBox
+          action={pending}
+          busy={busy}
+          onConfirm={confirmPay}
+          onCancel={() => {
+            setPending(null);
+            setMessage(t(tamil, 'Cancelled. Nothing was paid.', 'ரத்து. எதுவும் செலுத்தப்படவில்லை.'));
+            api('/api/chat/cancel', account.token, {body: {}}).catch(() => {});
+          }}
+        />
+      )}
 
       {/* ---- cart ---- */}
       <View style={ui.card}>
