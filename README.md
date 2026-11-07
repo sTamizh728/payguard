@@ -10,7 +10,7 @@ Built solo for the PayPal AI Hackathon 2026. Everything runs on the PayPal **san
 
 - Backend (live): `https://payguard-api-0msk.onrender.com` (FastAPI on Render, PostgreSQL on Neon)
 - App: React Native 0.88 Android app with its own Kotlin module (`apps/mobile`)
-- 324 automated tests (`backend/tests`), PayPal, Gemini and the database faked
+- 331 automated tests (`backend/tests`), PayPal, Gemini and the database faked
 
 ---
 
