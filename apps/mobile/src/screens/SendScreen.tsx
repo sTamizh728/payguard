@@ -3,7 +3,7 @@ import {Linking, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'reac
 
 import {api, AssistantReply, PendingAction} from '../api';
 import ConfirmBox from '../components/ConfirmBox';
-import {playSound} from '../native';
+import {pickContactEmail, playSound} from '../native';
 import {confirmWithSecurity, Session, t} from '../session';
 import {colors, ui} from '../theme';
 
@@ -22,6 +22,8 @@ const SendScreen = ({session}: {session: Session}) => {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [source, setSource] = useState<Source>(account?.isOwner ? 'wallet' : 'own');
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
 
   const load = useCallback(async () => {
     if (!account) {
@@ -52,6 +54,36 @@ const SendScreen = ({session}: {session: Session}) => {
       </View>
     );
   }
+
+  // Save someone (picked from the phone, or typed) as a PayGuard contact and choose them.
+  const addContact = async (name: string, email: string) => {
+    setMessage('');
+    try {
+      const saved = await api('/api/contacts/save', account.token, {body: {name, email}});
+      await load();
+      setChosen({name: saved.name, email: saved.email});
+      setNewName('');
+      setNewEmail('');
+      setMessage(t(tamil, `${saved.name} is chosen.`, `${saved.name} தேர்ந்தெடுக்கப்பட்டார்.`));
+    } catch (error) {
+      setMessage(session.handleError(error));
+      playSound('failed');
+    }
+  };
+
+  const pickFromPhone = async () => {
+    try {
+      const picked = await pickContactEmail();
+      if (picked?.email) {
+        await addContact(picked.name, picked.email);
+      } else if (picked) {
+        setMessage(t(tamil, 'That contact has no email. Type their PayPal email below.',
+          'அந்தத் தொடர்பில் மின்னஞ்சல் இல்லை. கீழே PayPal மின்னஞ்சலை உள்ளிடுங்கள்.'));
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not open contacts.');
+    }
+  };
 
   const review = async () => {
     setMessage('');
@@ -218,6 +250,36 @@ const SendScreen = ({session}: {session: Session}) => {
             );
           })}
         </View>
+
+        <TouchableOpacity onPress={pickFromPhone} accessibilityRole="button" style={ui.secondaryButton}>
+          <Text style={ui.secondaryButtonText}>📇 {t(tamil, 'Pick from phone contacts', 'போன் தொடர்புகளிலிருந்து தேர்வு')}</Text>
+        </TouchableOpacity>
+
+        <Text style={ui.label} nativeID="newEmailLabel">
+          {t(tamil, 'Or type their PayPal email', 'அல்லது அவர்களின் PayPal மின்னஞ்சல்')}
+        </Text>
+        <TextInput
+          value={newEmail}
+          onChangeText={setNewEmail}
+          accessibilityLabelledBy="newEmailLabel"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={255}
+          style={ui.input}
+        />
+        <Text style={ui.label} nativeID="newNameLabel">
+          {t(tamil, 'Their name (optional)', 'அவர்கள் பெயர் (விருப்பம்)')}
+        </Text>
+        <TextInput value={newName} onChangeText={setNewName} accessibilityLabelledBy="newNameLabel" maxLength={100} style={ui.input} />
+        <TouchableOpacity
+          onPress={() => addContact(newName, newEmail)}
+          disabled={newEmail.trim().length < 3}
+          accessibilityRole="button"
+          accessibilityState={{disabled: newEmail.trim().length < 3}}
+          style={[ui.secondaryButton, newEmail.trim().length < 3 && ui.disabled]}>
+          <Text style={ui.secondaryButtonText}>＋ {t(tamil, 'Add and choose', 'சேர்த்து தேர்வு செய்')}</Text>
+        </TouchableOpacity>
 
         <Text style={ui.label} nativeID="amountLabel">
           {t(tamil, 'Amount in US dollars', 'தொகை (அமெரிக்க டாலர்)')}

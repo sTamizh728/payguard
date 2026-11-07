@@ -105,3 +105,10 @@ export const unlock = async (reason: string) => {
     return false;
   }
 };
+
+// The phone's own contact picker (ContactPickerModule.kt): name + email of one contact.
+const Picker = NativeModules.ContactPicker as
+  | {pickEmail(): Promise<{name: string; email: string} | null>}
+  | undefined;
+
+export const pickContactEmail = async () => (Picker ? Picker.pickEmail() : null);

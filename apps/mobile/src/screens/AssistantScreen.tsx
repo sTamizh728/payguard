@@ -22,12 +22,19 @@ import {
 
 import {api, AssistantReply, PendingAction} from '../api';
 import ConfirmBox from '../components/ConfirmBox';
+import {WebProduct, WebProductRow} from '../components/BestProducts';
 import {LiveEvent, liveSay, muteLive, startLive} from '../live';
 import {playSound} from '../native';
 import {confirmWithSecurity, Session, t} from '../session';
 import {colors, ui} from '../theme';
 
-type Line = {from: 'you' | 'payguard'; text: string};
+// products: store links for 'find the best ...' answers.
+type Line = {from: 'you' | 'payguard'; text: string; products?: WebProduct[]};
+
+const webProducts = (rows?: any[]): WebProduct[] | undefined => {
+  const found = (rows ?? []).filter(r => r && r.type === 'web_product' && r.link);
+  return found.length ? found : undefined;
+};
 
 const requestMicrophone = async () => {
   if (Platform.OS !== 'android') {
@@ -92,7 +99,7 @@ const AssistantScreen = ({session}: {session: Session}) => {
       add({from: 'you', text: message});
       try {
         const reply = await api<AssistantReply>('/api/chat', account.token, {body: {message}});
-        add({from: 'payguard', text: reply.reply});
+        add({from: 'payguard', text: reply.reply, products: webProducts(reply.transactions)});
         setPending(reply.pending_action);
         playSound(
           reply.pending_action?.warnings?.length
@@ -178,6 +185,9 @@ const AssistantScreen = ({session}: {session: Session}) => {
           liveLine('payguard', event.text ?? '', true);
           break;
         case 'action':
+          if (webProducts(event.transactions)) {
+            add({from: 'payguard', text: 'Store links / கடை இணைப்புகள்:', products: webProducts(event.transactions)});
+          }
           if (event.pending_action) {
             // Money waits for the fingerprint / PayPal: stop listening until then.
             muteLive(true);
@@ -327,6 +337,10 @@ const AssistantScreen = ({session}: {session: Session}) => {
             <Text style={styles.from}>{line.from === 'you' ? t(tamil, 'You', 'நீங்கள்') : 'PayGuard'}</Text>
             <Text style={styles.text}>{line.text}</Text>
           </View>
+        ))}
+        {/* Store links sit outside the bubbles so each one is its own button. */}
+        {log.length > 0 && log[log.length - 1].products?.map(item => (
+          <WebProductRow key={`${item.rank}-${item.link}`} item={item} tamil={tamil} />
         ))}
         {pending && <ConfirmBox action={pending} busy={busy} onConfirm={confirm} onCancel={cancel} />}
       </ScrollView>
