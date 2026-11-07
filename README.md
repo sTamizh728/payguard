@@ -10,7 +10,7 @@ Built solo for the PayPal AI Hackathon 2026. Everything runs on the PayPal **san
 
 - Backend (live): `https://payguard-api-0msk.onrender.com` (FastAPI on Render, PostgreSQL on Neon)
 - App: React Native 0.88 Android app with its own Kotlin module (`apps/mobile`)
-- 299 automated tests (`backend/tests`), PayPal, Gemini and the database faked
+- 324 automated tests (`backend/tests`), PayPal, Gemini and the database faked
 
 ---
 
@@ -18,12 +18,14 @@ Built solo for the PayPal AI Hackathon 2026. Everything runs on the PayPal **san
 
 | Say or type | What happens | PayPal API |
 |---|---|---|
+| "Find the best wireless earbuds under 3000" | Top-rated products from online stores (real price, rating, review count), with links to buy on the store's own site | — (Google Shopping via SerpAPI) |
 | "Search for wireless earphones" | Reads the top results with price and star rating | — (demo catalog) |
 | "Tell me about number 2" | Description, stock, shipping and real written reviews | — |
-| "Add it to my cart", "Checkout" | One multi-item order, paid in PayPal checkout | **Orders v2** (create, capture) |
+| "Add it to my cart", "Checkout" | One multi-item order to your saved delivery address, paid in PayPal checkout | **Orders v2** (create, capture, shipping address) |
 | "Where is my order?", Track → Deliveries | Status, expected delivery date, receipt with PayPal transaction ID | Orders v2 |
 | "Send $20 to Priya" | Scam check, then PayGuard PIN + fingerprint, then the money is sent | **Payouts** |
 | Send → "My own PayPal" (anyone) | Pay a friend from your own PayPal, approved on PayPal's page | **Orders v2** (friend as payee) |
+| Send → "Pick from phone contacts" / type an email | Choose anyone from the phone's contact book (system picker, no contacts permission) or type a PayPal email; voice can then use the name | — |
 | "Set up autopay for StreamBox" | A real PayPal subscription, approved in PayPal; alerts each charge | **Subscriptions** + **Webhooks** |
 | "When is my next autopay?", "Pause autopay 2" | Status, next date, last payment; pause, resume, cancel (PIN + fingerprint) | **Subscriptions** |
 | Track → Autopay → Add | Track autopays set up elsewhere; reminder 2 days before each charge | — |
@@ -142,6 +144,9 @@ webhook to `/api/webhooks/paypal` and put its ID in `PAYPAL_WEBHOOK_ID`.
   PayGuard (demo billers in the sandbox; one renews daily) and outside autopays you add by
   hand. Reminders are made when the app checks for alerts (the free server has no clock job).
 - **Deliveries** show the shop's expected date; there is no live courier tracking in the demo.
+- **Best products** come from Google Shopping through SerpAPI (free plan: 100 searches a month,
+  cached 6 hours). PayGuard only links to the stores; it never orders from them. Prices,
+  ratings and links come from the search results, never from the AI.
 - **Paying from your own PayPal** always opens PayPal's page to approve: PayPal does not let
   any app move a person's own money with only a fingerprint.
 

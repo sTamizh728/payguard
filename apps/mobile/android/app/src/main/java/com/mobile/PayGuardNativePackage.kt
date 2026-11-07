@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class PayGuardNativePackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
-    listOf(PayGuardNativeModule(reactContext), LiveVoiceModule(reactContext))
+    listOf(PayGuardNativeModule(reactContext), LiveVoiceModule(reactContext), ContactPickerModule(reactContext))
 
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
     emptyList()

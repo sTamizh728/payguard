@@ -2,6 +2,8 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {AppState, Linking, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
 
 import {api} from '../api';
+import AddressCard from '../components/AddressCard';
+import BestProducts from '../components/BestProducts';
 import {playSound} from '../native';
 import {Session, t} from '../session';
 import {colors, ui} from '../theme';
@@ -158,6 +160,9 @@ const ShopScreen = ({session}: {session: Session}) => {
 
   return (
     <View>
+      {/* ---- best-rated products on the web: bought on the store's own site ---- */}
+      <BestProducts token={account.token} tamil={tamil} />
+
       {/* ---- search ---- */}
       <View style={ui.card}>
         <Text style={ui.title} accessibilityRole="header">
@@ -264,6 +269,8 @@ const ShopScreen = ({session}: {session: Session}) => {
           </TouchableOpacity>
         </View>
       )}
+
+      <AddressCard token={account.token} tamil={tamil} />
 
       {/* ---- cart ---- */}
       <View style={ui.card}>

@@ -20,12 +20,14 @@ scammer or a stolen phone move your money.
 PayGuard is an Android app with a real two-way voice conversation (Gemini Live), plus chat
 and buttons for everything:
 
+- **Find the best products:** "find the best wireless earbuds under 3000" ranks real Google
+  Shopping results by rating and number of reviews, and links to the stores to buy there.
 - **Shop by voice:** search products, hear prices, ratings and real reviews, add to cart, pay
   in PayPal checkout, then get an order confirmation, expected delivery date and a receipt
   with the PayPal transaction ID.
 - **Send money:** "Send $20 to Priya" uses PayPal Payouts after a scam check, your own
   PayGuard PIN and your fingerprint. Anyone can also pay a friend from their own PayPal
-  (approved on PayPal's page).
+  (approved on PayPal's page). Pick people from the phone's contact book or type their PayPal email.
 - **Autopay:** "Set up autopay for StreamBox" starts a real PayPal subscription; PayGuard
   shows the next charge and last payment, alerts on every charge or failure, and pauses,
   resumes or cancels it by voice. Autopays set up elsewhere can be added for reminders.
@@ -47,8 +49,8 @@ and buttons for everything:
   (gemini-3.1-flash-live-preview) for voice. The AI only chooses a tool; my code runs it.
 - **PayPal:** Orders v2 (shop and pay-a-friend), Payouts, Subscriptions, Payments v2 refunds,
   Balances (Reporting), Log in with PayPal (OpenID Connect), Webhooks with signature verification.
-- **Also:** Twilio Voice (signed requests) for phone ordering, DummyJSON as a demo catalog.
-- **299 automated tests** with PayPal, Gemini, Twilio and the database faked.
+- **Also:** SerpAPI (Google Shopping) for best-rated products, Twilio Voice (signed requests) for phone ordering, DummyJSON as a demo catalog.
+- **324 automated tests** with PayPal, Gemini, Twilio and the database faked.
 
 ## Safety design
 - Names, amounts and numbers must come from the person's own words, never the AI's.

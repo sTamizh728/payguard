@@ -27,6 +27,7 @@ export type LiveEvent = {
   message?: string;
   reply?: string;
   pending_action?: any;
+  transactions?: any[];
   event?: string | null;
 };
 
