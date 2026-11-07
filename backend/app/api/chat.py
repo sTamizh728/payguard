@@ -20,6 +20,8 @@ class ConfirmRequest(BaseModel):
     action_id: str = Field(min_length=10, max_length=64)
     # Base64 signature from the phone's fingerprint/PIN key.
     signature: str | None = Field(default=None, max_length=200)
+    # The person's own PayGuard PIN.
+    pin: str | None = Field(default=None, max_length=6)
 
 
 class PayoutRequest(BaseModel):
@@ -65,7 +67,7 @@ async def confirm(
     data: ConfirmRequest,
     current_user: User = Depends(get_current_user),
 ):
-    result = await chat_flow.confirm(current_user, data.action_id, data.signature)
+    result = await chat_flow.confirm(current_user, data.action_id, data.signature, data.pin)
     return _response(result)
 
 

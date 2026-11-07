@@ -240,7 +240,7 @@ const AssistantScreen = ({session}: {session: Session}) => {
 
   // ---------- confirm / cancel (both modes) ----------
 
-  const confirm = async () => {
+  const confirm = async (pin: string) => {
     if (!pending || !account) {
       return;
     }
@@ -255,7 +255,7 @@ const AssistantScreen = ({session}: {session: Session}) => {
     }
     setBusy(true);
     try {
-      const reply = await confirmWithSecurity(account.token, action);
+      const reply = await confirmWithSecurity(account.token, action, pin);
       setPending(reply.pending_action);
       add({from: 'payguard', text: reply.reply});
       if (live && !reply.pending_action) {

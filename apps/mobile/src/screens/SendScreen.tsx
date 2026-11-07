@@ -94,13 +94,13 @@ const SendScreen = ({session}: {session: Session}) => {
     }
   };
 
-  const confirm = async () => {
+  const confirm = async (pin: string) => {
     if (!pending) {
       return;
     }
     setBusy(true);
     try {
-      const reply = await confirmWithSecurity(account.token, pending);
+      const reply = await confirmWithSecurity(account.token, pending, pin);
       // Still waiting (scam guard cooling-off) keeps the box open.
       setPending(reply.pending_action);
       setMessage(reply.reply);

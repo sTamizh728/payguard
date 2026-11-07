@@ -4,11 +4,13 @@ import {AccessibilityInfo, StyleSheet, Text, TouchableOpacity, View} from 'react
 import {PendingAction} from '../api';
 import {playSound} from '../native';
 import {colors} from '../theme';
+import PinField from './PinField';
 
 type Props = {
   action: PendingAction;
   busy: boolean;
-  onConfirm: () => void;
+  // The PayGuard PIN typed in the box ('' for PayPal checkout).
+  onConfirm: (pin: string) => void;
   onCancel: () => void;
 };
 
@@ -17,9 +19,11 @@ const ConfirmBox = ({action, busy, onConfirm, onCancel}: Props) => {
   const warnings = action.warnings ?? [];
   // Scam guard cooling-off. The server enforces it too; this only shows it.
   const [wait, setWait] = useState(action.wait_seconds ?? 0);
+  const [pin, setPin] = useState('');
 
   useEffect(() => {
     setWait(action.wait_seconds ?? 0);
+    setPin('');
   }, [action.id, action.wait_seconds]);
 
   useEffect(() => {
@@ -37,8 +41,14 @@ const ConfirmBox = ({action, busy, onConfirm, onCancel}: Props) => {
     return () => clearTimeout(timer);
   }, [wait]);
 
-  const locked = busy || wait > 0;
   const checkout = action.type === 'checkout';
+  const needsPin = !checkout && pin.length < 4;
+  const locked = busy || wait > 0 || needsPin;
+  const press = () => {
+    const typed = pin;
+    setPin(''); // never keep the PIN around after one try
+    onConfirm(typed);
+  };
 
   return (
     <View style={[styles.box, warnings.length > 0 && styles.risky]}>
@@ -66,11 +76,14 @@ const ConfirmBox = ({action, busy, onConfirm, onCancel}: Props) => {
           ? 'You will pay in PayPal checkout.'
           : wait > 0
             ? `Confirm unlocks in ${wait} seconds.`
-            : 'Confirm with your fingerprint, face or phone PIN.'}
+            : 'Type your PayGuard PIN, then confirm with your fingerprint, face or phone PIN.'}
       </Text>
+      {!checkout && (
+        <PinField label="PayGuard PIN" value={pin} onChange={setPin} onDone={() => !locked && press()} />
+      )}
       <View style={styles.row}>
         <TouchableOpacity
-          onPress={onConfirm}
+          onPress={press}
           disabled={locked}
           accessibilityRole="button"
           accessibilityLabel={
@@ -78,7 +91,9 @@ const ConfirmBox = ({action, busy, onConfirm, onCancel}: Props) => {
               ? `Pay with PayPal: ${action.summary}`
               : wait > 0
                 ? `Confirm, locked for ${wait} seconds`
-                : `Confirm with fingerprint or PIN: ${action.summary}`
+                : needsPin
+                  ? 'Confirm. Type your PayGuard PIN first'
+                  : `Confirm with fingerprint or PIN: ${action.summary}`
           }
           accessibilityState={{disabled: locked, busy}}
           style={[styles.button, styles.yes, locked && styles.disabled]}>
@@ -150,6 +165,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     gap: 10,
+    marginTop: 12,
   },
   button: {
     flex: 1,

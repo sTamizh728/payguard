@@ -15,7 +15,10 @@ from app.agents import guardrails
 from app.agents.guardrails import MAX_TEXT
 from app.core.config import settings
 from app.models.user import User
-from app.services import contacts, payout_service, refund_service, scam_guard, security_service, shop_service, catalog_service
+from app.services import (
+    catalog_service, contacts, payout_service, pin_service, refund_service, scam_guard,
+    security_service, shop_service,
+)
 
 MAX_STRIKES = 2             # unsafe requests before refunds are locked
 LOCK_SECONDS = 10 * 60      # how long refunds stay locked
@@ -820,7 +823,9 @@ def _pending_public(pending: PendingRefund | PendingPayout) -> dict:
     return public
 
 
-async def confirm(user: User, action_id: str, signature: str | None = None) -> ChatReply:
+async def confirm(
+    user: User, action_id: str, signature: str | None = None, pin: str | None = None
+) -> ChatReply:
     """The owner pressed Confirm. Every check runs again before money moves."""
     session = _session(user.id)
     pending = session.pending
@@ -837,6 +842,16 @@ async def confirm(user: User, action_id: str, signature: str | None = None) -> C
             "Take a moment: is this really someone you know?",
             pending_action=_pending_public(pending),
         )
+
+    # PayGuard PIN. A wrong PIN keeps the request so the person can type it again;
+    # too many wrong tries lock the PIN and drop the request.
+    if settings.require_app_pin:
+        checked = pin_service.check_pin(user.id, pin)
+        if not checked.ok:
+            if checked.locked:
+                session.pending = None
+                return ChatReply(f"{checked.message} Nothing was sent.", event="failed")
+            return ChatReply(checked.message, pending_action=_pending_public(pending), event="failed")
 
     session.pending = None
 

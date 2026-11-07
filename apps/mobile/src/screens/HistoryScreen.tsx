@@ -5,6 +5,7 @@ import {api} from '../api';
 import {playSound, signBalanceCode, unlock} from '../native';
 import {Session, t} from '../session';
 import {colors, ui} from '../theme';
+import PinField from '../components/PinField';
 
 const FAILED = ['FAILED', 'DENIED', 'RETURNED', 'BLOCKED', 'REVERSED'];
 const ATTENTION = ['UNCLAIMED', 'UNKNOWN', 'ONHOLD'];
@@ -19,10 +20,17 @@ const HistoryScreen = ({session}: {session: Session}) => {
   const [data, setData] = useState<any>(null);
   const [message, setMessage] = useState('');
   const [balance, setBalance] = useState('');
+  const [balancePin, setBalancePin] = useState('');
 
   // The server only answers for a fresh fingerprint / PIN signature.
   const checkBalance = async () => {
     if (!account) {
+      return;
+    }
+    const pin = balancePin;
+    setBalancePin('');
+    if (pin.length < 4) {
+      setBalance(t(tamil, 'Please type your PayGuard PIN first.', 'முதலில் உங்கள் PayGuard PIN-ஐ தட்டச்சு செய்யுங்கள்.'));
       return;
     }
     setBalance('…');
@@ -30,7 +38,7 @@ const HistoryScreen = ({session}: {session: Session}) => {
       const {challenge} = await api('/api/security/balance-challenge', account.token);
       const signature = await signBalanceCode(challenge);
       const result = await api('/api/security/balance', account.token, {
-        body: {challenge, signature},
+        body: {challenge, signature, pin},
       });
       const lines = result.balances.map(
         (b: any) => `${b.currency} ${b.available} ${t(tamil, 'available', 'கிடைக்கிறது')}` +
@@ -130,6 +138,7 @@ const HistoryScreen = ({session}: {session: Session}) => {
                 {balance}
               </Text>
             ) : null}
+            <PinField label="PayGuard PIN" value={balancePin} onChange={setBalancePin} onDone={checkBalance} />
             <TouchableOpacity onPress={checkBalance} accessibilityRole="button" style={ui.primaryButton}>
               <Text style={ui.primaryButtonText}>
                 🔒 {t(tamil, 'Check balance', 'இருப்பைப் பார்')}
