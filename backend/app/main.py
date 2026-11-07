@@ -7,7 +7,7 @@ from app.services.payment_service import (
 )
 from app.core.config import settings
 from app.core.database import Base, engine
-from app.models import app_pin  # noqa: F401  (new tables must be imported before create_all)
+from app.models import app_pin, autopay, friend_payment  # noqa: F401  (new tables: import before create_all)
 from app.services.transaction_service import save_completed_capture
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
@@ -16,6 +16,7 @@ from app.api.webhooks import router as webhooks_router
 from app.api.shop import router as shop_router
 from app.api.phone import router as phone_router
 from app.api.live import router as live_router
+from app.api.track import router as track_router
 from app.services import shop_service, webhook_service
 from decimal import Decimal
 from html import escape
@@ -65,6 +66,7 @@ app.include_router(webhooks_router)
 app.include_router(shop_router)
 app.include_router(phone_router)
 app.include_router(live_router)
+app.include_router(track_router)
 
 @app.get("/api/paypal/payment-success")
 async def paypal_payment_success(token: str):

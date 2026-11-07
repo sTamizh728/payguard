@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.agents.chat_flow import is_merchant_admin
 from app.core.security import get_current_user
 from app.models.user import User
-from app.services import webhook_service
+from app.services import autopay_service, webhook_service
 
 router = APIRouter(tags=["Notifications"])
 
@@ -34,6 +34,8 @@ async def paypal_webhook(request: Request):
 
 @router.get("/api/notifications")
 def notifications(after_id: int = 0, current_user: User = Depends(get_current_user)):
+    # Reminders for upcoming autopays are made here: the free server has no clock job.
+    autopay_service.make_reminders(current_user.id)
     return {
         "notifications": webhook_service.list_for(
             current_user.id, is_merchant_admin(current_user), after_id

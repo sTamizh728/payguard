@@ -92,7 +92,7 @@ def user_said_number(value: float, text: str) -> bool:
 ORDINALS = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
             6: "sixth", 7: "seventh", 8: "eighth"}
 
-ID_KEYWORDS =r"(?:payment|request|order|purchase|number|no\.?|#)"
+ID_KEYWORDS =r"(?:payment|request|order|purchase|autopay|subscription|number|no\.?|#)"
 
 
 def user_said_id(value: int, text: str) -> bool:

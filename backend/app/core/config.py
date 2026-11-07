@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     # ...and with the person's own PayGuard PIN as well.
     require_app_pin: bool = True
 
+    # PayPal sends people back into the app after approving an autopay or a payment.
+    app_autopay_return_uri: str = "accessiblecommerce://autopay/done"
+    app_autopay_cancel_uri: str = "accessiblecommerce://autopay/cancel"
+    app_pay_return_uri: str = "accessiblecommerce://pay/done"
+    app_pay_cancel_uri: str = "accessiblecommerce://pay/cancel"
+
     @property
     def public_base_url(self) -> str:
         """This server's public address, e.g. https://payguard-api-0msk.onrender.com."""

@@ -842,10 +842,23 @@ def test_limit_checked_again_when_confirming(fake_world, payouts):
     assert payouts.calls == []
 
 
-def test_only_owner_can_send(payouts):
-    understand = send_ai("Priya", 20)
-    result = say("send $20 to Priya", understand, user=SAM)
-    assert result.pending_action is None
+def test_customer_sends_only_from_own_paypal(payouts, fake_world, monkeypatch):
+    """A customer never uses the shop's wallet: they approve in their own PayPal."""
+    from app.services import friend_pay_service
+
+    monkeypatch.setattr(friend_pay_service, "SessionLocal", fake_world)
+    created = []
+
+    async def create(to_email, amount, reference):
+        created.append((to_email, amount))
+        return {"order_id": "ORDER-F1", "approval_url": "https://paypal.test/approve/F1"}
+
+    monkeypatch.setattr(friend_pay_service, "_create_order", create)
+    result = say("send $20 to Priya", send_ai("Priya", 20), user=SAM)
+
+    assert result.pending_action["type"] == "checkout"
+    assert result.pending_action["url"] == "https://paypal.test/approve/F1"
+    assert created == [("sb-oaavd53471227@business.example.com", Decimal("20.00"))]
     assert payouts.calls == []
 
 

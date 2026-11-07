@@ -38,8 +38,8 @@ LIVE_MODELS = [m.strip() for m in (
 VOICE_RULES = """You are PayGuard, a friendly voice assistant for PayPal payments and
 shopping. Speak short, natural sentences in the person's language (English or Tamil).
 
-For ANY request about money, payments, refunds, history, balance, shopping, products,
-cart or orders, ALWAYS call the matching tool. Never answer those from memory and never
+For ANY request about money, payments, refunds, history, balance, autopays,
+subscriptions, shopping, products, cart, orders or deliveries, ALWAYS call the matching tool. Never answer those from memory and never
 invent names, amounts, products, prices, ratings or dates.
 
 After a tool result, say it in your own short words, keeping every number, name and date

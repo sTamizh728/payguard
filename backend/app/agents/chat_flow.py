@@ -16,8 +16,8 @@ from app.agents.guardrails import MAX_TEXT
 from app.core.config import settings
 from app.models.user import User
 from app.services import (
-    catalog_service, contacts, payout_service, pin_service, refund_service, scam_guard,
-    security_service, shop_service,
+    autopay_service, catalog_service, contacts, friend_pay_service, payout_service, pin_service,
+    refund_service, scam_guard, security_service, shop_service, track_service,
 )
 
 MAX_STRIKES = 2             # unsafe requests before refunds are locked
@@ -66,10 +66,20 @@ class PendingPayout:
 
 
 @dataclass
+class PendingAutopay:
+    id: str
+    autopay_id: int
+    number: int
+    name: str
+    change: str  # cancel / pause / resume
+    expires_at: float
+
+
+@dataclass
 class ChatSession:
     strikes: int = 0          # unsafe requests seen (NOT cleared by cancel)
     locked_until: float = 0.0
-    pending: PendingRefund | PendingPayout | None = None
+    pending: PendingRefund | PendingPayout | PendingAutopay | None = None
     # Shopping memory: product ids of the last search, and the product last described.
     last_results: list[int] = field(default_factory=list)
     current_product: int | None = None
@@ -169,7 +179,7 @@ async def handle_message(user: User, text: str, understand) -> ChatReply:
     if guardrails.is_unsafe(text):
         return _block(session)
 
-    if guardrails.words(text) & {"cancel", "stop"}:
+    if guardrails.words(text) & {"cancel", "stop"} and not _about_autopay(text):
         session.pending = None
         return ChatReply(CANCELLED)
 
@@ -214,6 +224,9 @@ async def handle_message(user: User, text: str, understand) -> ChatReply:
     if action in SHOP_ACTIONS:
         return await _shop(user, session, action, intent, text)
 
+    if action in TRACK_ACTIONS:
+        return await _track(user, session, action, intent, text)
+
     if role == "customer":
         # Customer tools only. Owner actions are never run for a customer,
         # whatever the AI answers.
@@ -221,8 +234,10 @@ async def handle_message(user: User, text: str, understand) -> ChatReply:
             return _show_purchases(user)
         if action == "request_refund":
             return _request_refund(user, intent, text)
+        if action == "send_money":
+            return await _prepare_friend_pay(user, intent, text)
         return ChatReply(
-            "I can show your purchases and send a refund request to the shop owner."
+            "I can help with your payments, autopays, shopping and refund requests."
         )
 
     if action == "send_money":
@@ -651,7 +666,8 @@ PAYOUT_STATUS_TEXT = {
 }
 
 
-def _prepare_payout_from_chat(user: User, session: ChatSession, intent: dict, text: str) -> ChatReply:
+def _recipient_and_amount(intent: dict, text: str) -> tuple[dict, Decimal] | ChatReply:
+    """The person and amount, from the user's own words only."""
     if str(intent.get("currency") or "USD").upper() != "USD":
         return ChatReply("Right now I can only send US dollars.")
 
@@ -678,7 +694,34 @@ def _prepare_payout_from_chat(user: User, session: ChatSession, intent: dict, te
         options = " or ".join(c["name"] for c in matches)
         return ChatReply(f"I found {len(matches)} people: {options}. Please say the full name.")
 
-    return prepare_payout(user, session, matches[0], amount, text)
+    return matches[0], amount
+
+
+def _prepare_payout_from_chat(user: User, session: ChatSession, intent: dict, text: str) -> ChatReply:
+    found = _recipient_and_amount(intent, text)
+    if isinstance(found, ChatReply):
+        return found
+    contact, amount = found
+    return prepare_payout(user, session, contact, amount, text)
+
+
+async def _prepare_friend_pay(user: User, intent: dict, text: str) -> ChatReply:
+    """Send from the person's OWN PayPal: they approve it on PayPal's page."""
+    found = _recipient_and_amount(intent, text)
+    if isinstance(found, ChatReply):
+        return found
+    contact, amount = found
+    try:
+        payment = await friend_pay_service.start(user, contact["email"], amount)
+    except friend_pay_service.FriendPayError as error:
+        return ChatReply(str(error), event="failed")
+    summary = f"Send {_money(amount)} USD to {contact['name']} from your PayPal"
+    return ChatReply(
+        f"{summary}? Tap Pay with PayPal and approve it in PayPal.",
+        pending_action={"id": payment["id"], "type": "checkout", "kind": "friend",
+                        "summary": summary, "url": payment["approval_url"]},
+        event="confirm_needed",
+    )
 
 
 def prepare_payout(
@@ -803,8 +846,10 @@ async def _confirm_payout(user: User, pending: PendingPayout) -> ChatReply:
     )
 
 
-def _pending_public(pending: PendingRefund | PendingPayout) -> dict:
-    if isinstance(pending, PendingPayout):
+def _pending_public(pending: PendingRefund | PendingPayout | PendingAutopay) -> dict:
+    if isinstance(pending, PendingAutopay):
+        kind, summary = "autopay", f"{pending.change.capitalize()} autopay {pending.number}: {pending.name}"
+    elif isinstance(pending, PendingPayout):
         kind, summary = "payout", f"Send {_money(pending.amount)} USD to {pending.name}"
     else:
         kind, summary = "refund", (
@@ -870,6 +915,9 @@ async def confirm(
     if time.monotonic() < session.locked_until:
         return ChatReply("Refunds are locked right now. Nothing was refunded.")
 
+    if isinstance(pending, PendingAutopay):
+        return await _confirm_autopay(user, pending)
+
     if not is_merchant_admin(user):
         return ChatReply(OWNER_ONLY)
 
@@ -927,3 +975,105 @@ async def confirm(
 def cancel(user: User) -> ChatReply:
     _session(user.id).pending = None
     return ChatReply(CANCELLED)
+
+
+# ---------- tracking: payment history and autopays (anyone logged in) ----------
+
+TRACK_ACTIONS = {"show_payment_history", "show_autopays", "start_autopay", "change_autopay"}
+AUTOPAY_WORDS = {"autopay", "autopays", "subscription", "subscriptions", "membership", "சந்தா"}
+CHANGE_WORDS = {
+    "cancel": {"cancel", "end", "stop", "ரத்து"},
+    "pause": {"pause", "hold", "suspend"},
+    "resume": {"resume", "restart", "unpause", "reactivate"},
+}
+
+
+def _about_autopay(text: str) -> bool:
+    """'Cancel my StreamBox autopay' is a request, not 'cancel what is pending'."""
+    return bool(guardrails.words(text) & AUTOPAY_WORDS) or autopay_service.find_biller(text) is not None
+
+
+def _billers_text() -> str:
+    return ", ".join(
+        f"{b['name']} (${b['amount']:.2f} every {autopay_service.INTERVALS[b['interval']]})"
+        for b in autopay_service.BILLERS.values()
+    )
+
+
+async def _track(user: User, session: ChatSession, action: str, intent: dict, text: str) -> ChatReply:
+    if action == "show_payment_history":
+        items = track_service.payment_history(user)[:DEFAULT_LIST]
+        if not items:
+            return ChatReply("You have no payments yet.")
+        lines = " ".join(f"{i['title']}, {i['date'][:10]}: {i['status_text']}." for i in items)
+        return ChatReply(f"Your latest payments. {lines}", transactions=items)
+
+    if action == "show_autopays":
+        items = autopay_service.list_autopays(user.id, include_ended=False)
+        if not items:
+            return ChatReply(
+                "You have no autopays yet. You can set one up on the Track tab, "
+                f"or say 'set up autopay for' one of: {_billers_text()}."
+            )
+        return ChatReply(" ".join(autopay_service.describe(i) for i in items), transactions=items)
+
+    if action == "start_autopay":
+        # The biller must come from the person's own words, not the AI's.
+        key = autopay_service.find_biller(text)
+        if key is None:
+            return ChatReply(f"Which autopay would you like? I can set up: {_billers_text()}.")
+        try:
+            item = await autopay_service.start_paypal_autopay(user.id, key)
+        except autopay_service.AutopayError as error:
+            return ChatReply(str(error), event="failed")
+        summary = f"Autopay: {item['name']}, ${item['amount']} every {item['every']}"
+        return ChatReply(
+            f"{summary}. Tap Approve in PayPal to start it. PayPal will charge it until you cancel.",
+            pending_action={"id": str(item["id"]), "type": "checkout", "kind": "autopay",
+                            "summary": summary, "url": item["approval_url"]},
+            event="confirm_needed",
+        )
+
+    # change_autopay: which change, and which autopay, from the person's own words.
+    said = guardrails.words(text)
+    change = next((c for c, words in CHANGE_WORDS.items() if said & words), None)
+    if change is None:
+        return ChatReply("Would you like to cancel, pause or resume an autopay?")
+
+    items = autopay_service.list_autopays(user.id, include_ended=False)
+    chosen = None
+    number = _said_int(intent.get("autopay_number"), text)
+    if number is not None:
+        chosen = next((i for i in items if i["number"] == number), None)
+    else:
+        key = autopay_service.find_biller(text)
+        name = autopay_service.BILLERS[key]["name"] if key else None
+        named = [i for i in items if name and i["name"] == name] or [
+            i for i in items if i["source"] == "manual" and set(guardrails.words(i["name"])) & said - AUTOPAY_WORDS
+        ]
+        if len(named) == 1:
+            chosen = named[0]
+    if chosen is None:
+        if not items:
+            return ChatReply("You have no autopays to change.")
+        return ChatReply("Which autopay? " + " ".join(autopay_service.describe(i) for i in items))
+
+    session.pending = PendingAutopay(
+        id=secrets.token_urlsafe(16), autopay_id=chosen["id"], number=chosen["number"],
+        name=chosen["name"], change=change, expires_at=time.monotonic() + ACTION_TTL_SECONDS,
+    )
+    return ChatReply(
+        f"{change.capitalize()} autopay {chosen['number']}: {chosen['name']} "
+        f"(${chosen['amount']} every {chosen['every']})? Tap Confirm.",
+        pending_action=_pending_public(session.pending),
+        event="confirm_needed",
+    )
+
+
+async def _confirm_autopay(user: User, pending: PendingAutopay) -> ChatReply:
+    try:
+        item = await autopay_service.change(user.id, pending.autopay_id, pending.change)
+    except autopay_service.AutopayError as error:
+        return ChatReply(f"{error} Nothing was changed.", event="failed")
+    done = {"cancel": "cancelled", "pause": "paused", "resume": "resumed"}[pending.change]
+    return ChatReply(f"Done. Your {item['name']} autopay is {done}.", event="request_sent")
