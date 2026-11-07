@@ -283,8 +283,27 @@ def _said_int(value, text: str) -> int | None:
 # ---------- shop (anyone logged in; PayPal checkout is the payment check) ----------
 
 SHOP_ACTIONS = {"search_products", "product_details", "add_to_cart", "remove_from_cart", "show_cart", "checkout_cart",
-                "show_orders"}
+                "show_orders", "find_best_products"}
 THIS_WORDS = {"it", "this", "that", "one"}
+
+
+async def _find_best(user: User, query: str) -> ChatReply:
+    """Top-rated products on the web, with store links. Nothing is ordered here."""
+    from app.services import address_service, web_shop_service
+
+    address = address_service.get(user.id)
+    try:
+        items = await web_shop_service.find_best(query, (address or {}).get("country_code") or "us")
+    except web_shop_service.WebShopError as error:
+        return ChatReply(str(error))
+    if not items:
+        return ChatReply(f"I found no well-rated products for {query}. Try other words.")
+    lines = " ".join(web_shop_service.describe(i) for i in items[:3])
+    return ChatReply(
+        f"The best rated for {query}, from Google Shopping: {lines} "
+        "Tap a link to open the store and buy there.",
+        transactions=[{**i, "type": "web_product"} for i in items],
+    )
 
 
 def _stars(rating: float) -> str:
@@ -292,6 +311,8 @@ def _stars(rating: float) -> str:
 
 
 async def _shop(user: User, session: ChatSession, action: str, intent: dict, text: str) -> ChatReply:
+    if action == "find_best_products":
+        return await _find_best(user, str(intent.get("query") or "").strip() or text)
     try:
         if action == "search_products":
             query = str(intent.get("query") or "").strip()
@@ -666,7 +687,7 @@ PAYOUT_STATUS_TEXT = {
 }
 
 
-def _recipient_and_amount(intent: dict, text: str) -> tuple[dict, Decimal] | ChatReply:
+def _recipient_and_amount(intent: dict, text: str, user_id: int) -> tuple[dict, Decimal] | ChatReply:
     """The person and amount, from the user's own words only."""
     if str(intent.get("currency") or "USD").upper() != "USD":
         return ChatReply("Right now I can only send US dollars.")
@@ -685,7 +706,7 @@ def _recipient_and_amount(intent: dict, text: str) -> tuple[dict, Decimal] | Cha
     if len(name) < 2 or not all(w in said for w in guardrails.words(name)):
         return ChatReply("Who would you like to send money to?")
 
-    matches = contacts.find_contacts(name)
+    matches = contacts.find_contacts(name, user_id)
 
     if not matches:
         return ChatReply(f"I couldn't find {name} in your contacts.")
@@ -698,7 +719,7 @@ def _recipient_and_amount(intent: dict, text: str) -> tuple[dict, Decimal] | Cha
 
 
 def _prepare_payout_from_chat(user: User, session: ChatSession, intent: dict, text: str) -> ChatReply:
-    found = _recipient_and_amount(intent, text)
+    found = _recipient_and_amount(intent, text, user.id)
     if isinstance(found, ChatReply):
         return found
     contact, amount = found
@@ -707,7 +728,7 @@ def _prepare_payout_from_chat(user: User, session: ChatSession, intent: dict, te
 
 async def _prepare_friend_pay(user: User, intent: dict, text: str) -> ChatReply:
     """Send from the person's OWN PayPal: they approve it on PayPal's page."""
-    found = _recipient_and_amount(intent, text)
+    found = _recipient_and_amount(intent, text, user.id)
     if isinstance(found, ChatReply):
         return found
     contact, amount = found
@@ -779,7 +800,7 @@ async def prepare_payout_from_form(user: User, email: str, amount: Decimal) -> C
     if not is_merchant_admin(user):
         return ChatReply(OWNER_ONLY)
 
-    contact = contacts.find_by_email(email)
+    contact = contacts.find_by_email(email, user.id)
     if contact is None:
         return ChatReply("Please choose a person from your contacts.")
 

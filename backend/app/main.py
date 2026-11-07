@@ -7,7 +7,7 @@ from app.services.payment_service import (
 )
 from app.core.config import settings
 from app.core.database import Base, engine
-from app.models import app_pin, autopay, friend_payment  # noqa: F401  (new tables: import before create_all)
+from app.models import app_pin, autopay, delivery_address, friend_payment, saved_contact  # noqa: F401  (new tables: import before create_all)
 from app.services.transaction_service import save_completed_capture
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
@@ -55,7 +55,7 @@ with engine.begin() as connection:
     ))
     for column in (
         "summary VARCHAR(300)", "items_json TEXT", "delivery_by VARCHAR(10)",
-        "paid_at TIMESTAMP WITH TIME ZONE", "transaction_id VARCHAR(50)",
+        "paid_at TIMESTAMP WITH TIME ZONE", "transaction_id VARCHAR(50)", "ship_to VARCHAR(400)",
     ):
         connection.execute(text(f"ALTER TABLE shop_orders ADD COLUMN IF NOT EXISTS {column}"))
 

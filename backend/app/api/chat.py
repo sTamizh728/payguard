@@ -90,7 +90,7 @@ def list_contacts(current_user: User = Depends(get_current_user)):
     me = current_user.email.strip().lower()
     return {
         # Never offer to send money to yourself.
-        "contacts": [c for c in contacts.CONTACTS if c["email"] != me],
+        "contacts": contacts.all_for(current_user.id, me),
         "left_today": f"{payout_service.left_today(current_user.id):.2f}",
         "max_payment": f"{payout_service.MAX_PAYOUT:.2f}",
     }

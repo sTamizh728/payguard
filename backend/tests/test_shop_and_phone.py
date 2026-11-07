@@ -27,7 +27,8 @@ from app.core.security import get_current_user
 from app.models.notification import Notification  # noqa: F401
 from app.models.shop_order import ShopOrder
 from app.models.user import User
-from app.services import catalog_service, payment_service, shop_service, webhook_service
+from app.services import address_service, catalog_service, payment_service, shop_service, webhook_service
+from tests.conftest import HOME
 
 TOKEN = "twilio-test-token"
 BUYER = SimpleNamespace(id=1, email="buyer@shop.test", paypal_user_id="pp-buyer")
@@ -46,11 +47,12 @@ def world(monkeypatch):
         db.add(User(id=1, email="buyer@shop.test", paypal_user_id="pp-buyer"))
         db.commit()
     chat_flow._sessions.clear()
+    address_service.save(1, HOME)  # checkout needs a delivery address
 
     calls = []
 
-    async def fake_order(lines, reference):
-        calls.append(dict(lines=lines))
+    async def fake_order(lines, reference, shipping=None):
+        calls.append(dict(lines=lines, shipping=shipping))
         return {"order_id": f"PPORDER{len(calls)}", "approval_url": f"https://paypal.test/checkout/{len(calls)}"}
 
     monkeypatch.setattr(payment_service, "create_paypal_item_order", fake_order)
@@ -135,12 +137,47 @@ def test_checkout_uses_server_prices_and_empties_cart(world, catalog):
     order = world.client.post("/api/shop/checkout").json()
 
     assert order["total"] == "139.97"
-    assert world.calls == [dict(lines=[("Apple iPhone Charger", Decimal("19.99"), 2),
-                                       ("Apple MagSafe Battery Pack", Decimal("99.99"), 1)])]
+    assert world.calls[0]["lines"] == [("Apple iPhone Charger", Decimal("19.99"), 2),
+                                       ("Apple MagSafe Battery Pack", Decimal("99.99"), 1)]
+    # The person's own delivery address goes to PayPal and onto the order.
+    assert world.calls[0]["shipping"]["address"] == {
+        "address_line_1": "12 Gandhi Road", "admin_area_2": "Chennai", "postal_code": "600001",
+        "country_code": "IN", "admin_area_1": "Tamil Nadu"}
+    assert orders(world.Session)[0].ship_to == "Anna Buyer, 12 Gandhi Road, Chennai, Tamil Nadu, 600001, IN"
     assert world.client.get("/api/shop/cart").json()["items"] == []
     [saved] = orders(world.Session)
     assert saved.summary == "2 x Apple iPhone Charger, 1 x Apple MagSafe Battery Pack"
     assert saved.user_id == 1 and saved.channel == "app"
+
+
+def test_checkout_needs_an_address(world, catalog, side_db):
+    from app.models.delivery_address import DeliveryAddress
+
+    with side_db() as db:
+        db.query(DeliveryAddress).delete()
+        db.commit()
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    response = world.client.post("/api/shop/checkout")
+    assert response.status_code == 400 and "delivery address" in response.json()["detail"]
+    assert world.calls == []
+    assert len(world.client.get("/api/shop/cart").json()["items"]) == 1
+
+
+@pytest.mark.parametrize("change,error", [
+    ({"postal_code": "6000"}, "6 digits"), ({"state": ""}, "state"), ({"country_code": "I1"}, "2 letters"),
+    ({"phone": "call me"}, "phone"),
+])
+def test_bad_addresses_are_refused(world, change, error):
+    response = world.client.put("/api/shop/address", json={**HOME, **change})
+    assert response.status_code in (400, 422)
+    if response.status_code == 400:
+        assert error in response.json()["detail"]
+
+
+def test_address_round_trip(world):
+    saved = world.client.put("/api/shop/address", json={**HOME, "city": "Madurai", "postal_code": "625001"}).json()
+    assert saved["address"]["city"] == "Madurai"
+    assert world.client.get("/api/shop/address").json()["address"]["postal_code"] == "625001"
 
 
 def test_checkout_empty_cart(world, catalog):
@@ -156,7 +193,7 @@ def test_checkout_over_limit(world, catalog):
 
 
 def test_paypal_down_keeps_the_cart(world, catalog, monkeypatch):
-    async def broken(lines, reference):
+    async def broken(lines, reference, shipping=None):
         raise RuntimeError("PayPal order failed (HTTP 500).")
 
     monkeypatch.setattr(payment_service, "create_paypal_item_order", broken)

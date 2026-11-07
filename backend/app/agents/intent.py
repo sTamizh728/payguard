@@ -222,7 +222,15 @@ show_orders = _tool(
     "The person asks about their shop orders: status, receipt, or when it will be delivered.",
 )
 
-SHOP_TOOLS = [search_products, product_details, add_to_cart, remove_from_cart, show_cart, checkout_cart, show_orders]
+find_best_products = _tool(
+    "find_best_products",
+    "The person wants the BEST or top-rated products from online stores (Google Shopping, Amazon, "
+    "Flipkart...), to compare and buy on the store's own site.",
+    query=("STRING", "What to look for, with any budget they said, e.g. 'wireless earbuds under 3000'"),
+)
+
+SHOP_TOOLS = [search_products, product_details, add_to_cart, remove_from_cart, show_cart, checkout_cart, show_orders,
+              find_best_products]
 
 # ---- tracking: payments, autopays (anyone logged in) ----
 show_payment_history = _tool(
@@ -271,6 +279,10 @@ the user's message. The message may be in English or Tamil.
 TOOLS
 - search_products / product_details / add_to_cart / remove_from_cart / show_cart /
   checkout_cart: shopping in the PayGuard Shop.
+- find_best_products: the best / top-rated products from stores on the web (Amazon,
+  Flipkart, Google Shopping). PayGuard only gives links; the person buys on that site.
+  Use it when they say best, top rated, compare, online, Amazon or Flipkart; use
+  search_products to buy in the PayGuard Shop.
 - show_payment_history / show_autopays / start_autopay / change_autopay: the owner's
   payment history and autopays (subscriptions).
 - send_money: the owner wants to send money to one person.
@@ -320,6 +332,10 @@ may be in English or Tamil.
 TOOLS
 - search_products / product_details / add_to_cart / remove_from_cart / show_cart /
   checkout_cart: shopping in the PayGuard Shop.
+- find_best_products: the best / top-rated products from stores on the web (Amazon,
+  Flipkart, Google Shopping). PayGuard only gives links; the person buys on that site.
+  Use it when they say best, top rated, compare, online, Amazon or Flipkart; use
+  search_products to buy in the PayGuard Shop.
 - show_payment_history / show_autopays / start_autopay / change_autopay: their own
   payment history and autopays (subscriptions).
 - send_money: they want to send money from their own PayPal to one person.

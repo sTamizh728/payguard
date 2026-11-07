@@ -140,6 +140,28 @@ def pay_contacts(current_user: User = Depends(get_current_user)):
 
     me = current_user.email.strip().lower()
     return {
-        "contacts": [c for c in contacts.CONTACTS if c["email"] != me],
+        "contacts": contacts.all_for(current_user.id, me),
         "max_payment": f"{friend_pay_service.MAX_AMOUNT:.2f}",
     }
+
+
+class NewContact(BaseModel):
+    name: str = Field(default="", max_length=100)
+    email: str = Field(min_length=3, max_length=255)
+
+
+@router.post("/contacts/save")
+def save_contact(data: NewContact, current_user: User = Depends(get_current_user)):
+    """Someone picked from the phone's contact book, or a PayPal email typed in."""
+    from app.services import contacts
+
+    try:
+        email = contacts.clean_email(data.email)
+    except contacts.ContactError as error:
+        _fail(error)
+    if email == current_user.email.strip().lower():
+        raise HTTPException(status_code=400, detail="You can't send money to yourself.")
+    try:
+        return contacts.save(current_user.id, data.name, email)
+    except contacts.ContactError as error:
+        _fail(error)

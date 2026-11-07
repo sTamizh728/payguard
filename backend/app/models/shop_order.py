@@ -39,6 +39,8 @@ class ShopOrder(Base):
     delivery_by: Mapped[str | None] = mapped_column(String(10), nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     transaction_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Delivery address, one line, as it was when the order was made.
+    ship_to: Mapped[str | None] = mapped_column(String(400), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

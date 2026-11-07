@@ -385,6 +385,7 @@ async def get_paypal_balances() -> list[dict]:
 async def create_paypal_item_order(
     lines: list[tuple[str, Decimal, int]],
     reference: str,
+    shipping: dict | None = None,
 ) -> dict:
     """
     A PayPal order for one or more product lines (name, unit price, quantity).
@@ -401,34 +402,45 @@ async def create_paypal_item_order(
 
     token_data = await get_access_token()
 
+    def body(ship: dict | None) -> dict:
+        unit = {
+            "reference_id": reference,
+            "custom_id": reference,
+            "description": f"PayGuard Shop: {description}"[:127],
+            "amount": {**money(total), "breakdown": {"item_total": money(total)}},
+            "items": items,
+        }
+        if ship:
+            unit["shipping"] = ship  # PayPal shows the person's own delivery address
+        return {
+            "intent": "CAPTURE",
+            "purchase_units": [unit],
+            "payment_source": {"paypal": {"experience_context": {
+                "user_action": "PAY_NOW",
+                "shipping_preference": "SET_PROVIDED_ADDRESS" if ship else "NO_SHIPPING",
+                "brand_name": "PayGuard Shop",
+                # Back into the app, not to a web page on our server.
+                "return_url": settings.app_shop_return_uri,
+                "cancel_url": settings.app_shop_cancel_uri,
+            }}},
+        }
+
     async with httpx.AsyncClient(timeout=20.0) as client:
         try:
-            response = await client.post(
-                f"{settings.paypal_base_url.rstrip('/')}/v2/checkout/orders",
-                headers={
-                    "Authorization": f"Bearer {token_data['access_token']}",
-                    "Content-Type": "application/json",
-                    "PayPal-Request-Id": f"create-{reference}",
-                },
-                json={
-                    "intent": "CAPTURE",
-                    "purchase_units": [{
-                        "reference_id": reference,
-                        "custom_id": reference,
-                        "description": f"PayGuard Shop: {description}"[:127],
-                        "amount": {**money(total), "breakdown": {"item_total": money(total)}},
-                        "items": items,
-                    }],
-                    "payment_source": {"paypal": {"experience_context": {
-                        "user_action": "PAY_NOW",
-                        "shipping_preference": "NO_SHIPPING",
-                        "brand_name": "PayGuard Shop",
-                        # Back into the app, not to a web page on our server.
-                        "return_url": settings.app_shop_return_uri,
-                        "cancel_url": settings.app_shop_cancel_uri,
-                    }}},
-                },
-            )
+            for attempt, ship in enumerate([shipping, None] if shipping else [None]):
+                response = await client.post(
+                    f"{settings.paypal_base_url.rstrip('/')}/v2/checkout/orders",
+                    headers={
+                        "Authorization": f"Bearer {token_data['access_token']}",
+                        "Content-Type": "application/json",
+                        "PayPal-Request-Id": f"create-{reference}-{attempt}",
+                    },
+                    json=body(ship),
+                )
+                # PayPal refused the address format: the address stays on our order; try without it.
+                if response.status_code in (400, 422) and ship:
+                    continue
+                break
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise RuntimeError(f"PayPal order failed (HTTP {exc.response.status_code}).") from None
