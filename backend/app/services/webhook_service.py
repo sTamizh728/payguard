@@ -96,7 +96,7 @@ def describe(event: dict) -> tuple[str, str, int | None, str | None, str | None]
         amount = _money((resource.get("payout_item") or {}), "amount")
         if status == "SUCCESS":
             return "payment_sent", f"Your payment of {amount} was received.", None, batch_id, status
-        return "payment_failed", f"Your payment of {amount} is {status.lower()}. Open History for details.", None, batch_id, status
+        return "payment_failed", f"Your payment of {amount} is {status.lower()}. Open Track for details.", None, batch_id, status
 
     if kind == "PAYMENT.CAPTURE.COMPLETED":
         return "payment_received", f"You received {_money(resource, 'amount')}.", None, None, None

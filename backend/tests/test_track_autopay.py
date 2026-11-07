@@ -159,6 +159,15 @@ def test_cancel_pause_resume_call_paypal(world):
         run(autopay_service.change(1, 1, "resume"))
 
 
+def test_unapproved_autopay_is_dropped_without_paypal(world):
+    run(autopay_service.start_paypal_autopay(1, "fitlife"))
+    with pytest.raises(autopay_service.AutopayError, match="not approved"):
+        run(autopay_service.change(1, 1, "pause"))
+    before = len(world.paypal.calls)
+    assert run(autopay_service.change(1, 1, "cancel"))["status"] == "CANCELLED"
+    assert len(world.paypal.calls) == before  # PayPal refuses to cancel an unapproved one
+
+
 @pytest.mark.parametrize("text,key", [
     ("set up autopay for StreamBox", "streambox"), ("stream box please", "streambox"),
     ("my gym", "fitlife"), ("CloudSafe", "cloudsafe"), ("daily news", "dailynews"), ("netflix", None),

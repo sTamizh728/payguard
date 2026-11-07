@@ -29,6 +29,8 @@ import {colors} from './src/theme';
 
 const APP_AUTH_PREFIX = 'accessiblecommerce://auth';
 const APP_SHOP_PREFIX = 'accessiblecommerce://shop';
+const APP_AUTOPAY_PREFIX = 'accessiblecommerce://autopay';
+const APP_PAY_PREFIX = 'accessiblecommerce://pay/';
 
 const ALERT_SOUNDS: Record<string, string> = {
   payment_received: 'money_received',
@@ -286,6 +288,65 @@ const App = () => {
       return;
     }
     const params = readQuery(url);
+
+    // Back from approving an autopay in PayPal. The link proves nothing:
+    // the server asks PayPal for the real status.
+    if (url.startsWith(APP_AUTOPAY_PREFIX)) {
+      const current = accountRef.current;
+      setTab('history');
+      if (url.includes('/cancel') || !params.subscription_id) {
+        setAuthMessage('Autopay not started. Nothing will be charged.');
+        return;
+      }
+      if (!current) {
+        setAuthMessage('Please log in, then open Track to check the autopay.');
+        return;
+      }
+      setAuthMessage('Checking your autopay with PayPal...');
+      try {
+        const item = await api('/api/autopay/return', current.token, {
+          body: {subscription_id: params.subscription_id},
+        });
+        const text =
+          item.status === 'ACTIVE'
+            ? `${item.name} autopay is on: $${item.amount} every ${item.every}.` +
+              (item.next_date ? ` Next payment ${item.next_date}.` : '')
+            : `${item.name} autopay is still waiting for PayPal. Check again in Track in a minute.`;
+        setAuthMessage(text);
+        playSound(item.status === 'ACTIVE' ? 'payment_sent' : 'request_sent');
+        AccessibilityInfo.announceForAccessibility(text);
+      } catch (error) {
+        setAuthMessage(error instanceof Error ? error.message : 'Could not check the autopay.');
+        playSound('failed');
+      }
+      return;
+    }
+
+    // Back from approving a payment to a friend in PayPal: collect it now.
+    if (url.startsWith(APP_PAY_PREFIX)) {
+      const current = accountRef.current;
+      setTab('send');
+      if (url.includes('/cancel') || !params.token) {
+        setAuthMessage('Payment cancelled. No money was sent.');
+        return;
+      }
+      if (!current) {
+        setAuthMessage('Please log in to finish the payment.');
+        return;
+      }
+      setAuthMessage('Finishing your PayPal payment...');
+      try {
+        const done = await api('/api/pay/complete', current.token, {body: {order_id: params.token}});
+        const text = `Done. You sent $${done.amount} to ${done.name} from your PayPal.`;
+        setAuthMessage(text);
+        playSound('payment_sent');
+        AccessibilityInfo.announceForAccessibility(text);
+      } catch (error) {
+        setAuthMessage(error instanceof Error ? error.message : 'The payment could not be finished.');
+        playSound('failed');
+      }
+      return;
+    }
 
     if (url.startsWith(APP_SHOP_PREFIX)) {
       const current = accountRef.current;
