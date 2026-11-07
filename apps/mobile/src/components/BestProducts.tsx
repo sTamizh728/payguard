@@ -14,6 +14,9 @@ export type WebProduct = {
   reviews: number;
   store: string;
   link: string;
+  // true: link opens the store itself; false: Google's page with every seller.
+  store_link?: boolean;
+  compare_link?: string;
   delivery?: string | null;
 };
 
@@ -32,13 +35,24 @@ export const WebProductRow = ({item, tamil}: {item: WebProduct; tamil: boolean})
           {item.delivery ? ` · ${item.delivery}` : ''}
         </Text>
       </View>
-      <TouchableOpacity
-        onPress={() => Linking.openURL(item.link)}
-        accessibilityRole="link"
-        accessibilityLabel={t(tamil, `Open ${item.title} at ${item.store}`, `${item.store}-இல் ${item.title} திற`)}
-        style={styles.open}>
-        <Text style={styles.openText}>{t(tamil, `Open at ${item.store}`, `${item.store}-இல் திற`)} ↗</Text>
-      </TouchableOpacity>
+      {item.store_link !== false && (
+        <TouchableOpacity
+          onPress={() => Linking.openURL(item.link)}
+          accessibilityRole="link"
+          accessibilityLabel={t(tamil, `Open ${item.title} at ${item.store}`, `${item.store}-இல் ${item.title} திற`)}
+          style={styles.open}>
+          <Text style={styles.openText}>{t(tamil, `Open at ${item.store}`, `${item.store}-இல் திற`)} ↗</Text>
+        </TouchableOpacity>
+      )}
+      {(item.compare_link || item.store_link === false) && (
+        <TouchableOpacity
+          onPress={() => Linking.openURL(item.compare_link || item.link)}
+          accessibilityRole="link"
+          accessibilityLabel={t(tamil, `Compare prices for ${item.title} in all stores`, `${item.title} விலைகளை ஒப்பிடு`)}
+          style={styles.compare}>
+          <Text style={styles.compareText}>{t(tamil, 'Compare prices in all stores', 'எல்லா கடைகளிலும் விலை ஒப்பிடு')} ↗</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -146,6 +160,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   openText: {color: colors.paypalNavy, fontSize: 16, fontWeight: '800'},
+  compare: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  compareText: {color: colors.ink, fontSize: 15, fontWeight: '700'},
 });
 
 export default BestProducts;

@@ -48,13 +48,29 @@ def best(query, country="in"):
 def test_ranked_by_rating_with_enough_reviews():
     items = best("wireless earbuds")
     assert [i["title"] for i in items] == ["Luxury Pods", "Bass King", "Sound Pro"]
-    assert items[0]["rank"] == 1 and items[0]["link"] == "https://croma.example/pods"
+    assert items[0]["rank"] == 1 and items[0]["link"] == "https://www.croma.com/searchB?q=Luxury+Pods"
 
 
 def test_budget_from_the_words():
     items = best("wireless earbuds under 3,000 rupees")
     assert [i["title"] for i in items] == ["Bass King", "Sound Pro", "Budget Buds"]
     assert all("price_value" not in i for i in items)
+
+
+def test_store_links_go_to_the_store():
+    items = {i["title"]: i for i in best("earbuds")}
+    assert items["Bass King"]["link"] == "https://www.flipkart.com/search?q=Bass+King"
+    assert items["Bass King"]["store_link"] is True
+    assert items["Sound Pro"]["link"].startswith("https://www.amazon.in/s?k=Sound+Pro")
+    assert items["Sound Pro"]["compare_link"] == "https://www.google.com/shopping/product/1"
+    # Unknown store: Google's page with all sellers.
+    assert items["Luxury Pods"]["link"] == "https://croma.example/pods" or items["Luxury Pods"]["store_link"]
+
+
+@pytest.mark.parametrize("store,ok", [("Amazon.in", True), ("amazon.in - Seller", True), ("Flipkart", True),
+                                      ("Myntra", True), ("Some Shop", False), ("", False)])
+def test_known_stores(store, ok):
+    assert (web_shop_service.store_link(store, "X Y") is not None) == ok
 
 
 def test_only_real_web_links():

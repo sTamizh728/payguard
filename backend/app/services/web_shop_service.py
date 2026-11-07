@@ -8,6 +8,7 @@ never from the AI. Results are cached for 6 hours to save the free search quota.
 """
 import re
 import time
+from urllib.parse import quote_plus
 from decimal import Decimal, InvalidOperation
 
 import httpx
@@ -28,6 +29,39 @@ GOOGLE_DOMAINS = {"in": "google.co.in", "gb": "google.co.uk", "au": "google.com.
 
 class WebShopError(Exception):
     pass
+
+
+# Google Shopping gives a link to its own product page (all sellers), not to the
+# store. For well-known stores PayGuard builds the store's own search link for the
+# product name - a fixed address pattern, so the link can only go to that store.
+STORE_SEARCH = {
+    "amazon.in": "https://www.amazon.in/s?k={q}",
+    "amazon.com": "https://www.amazon.com/s?k={q}",
+    "amazon.co.uk": "https://www.amazon.co.uk/s?k={q}",
+    "flipkart": "https://www.flipkart.com/search?q={q}",
+    "myntra": "https://www.myntra.com/{q}",
+    "croma": "https://www.croma.com/searchB?q={q}",
+    "reliance digital": "https://www.reliancedigital.in/products?q={q}",
+    "tatacliq": "https://www.tatacliq.com/search/?searchCategory=all&text={q}",
+    "tata cliq": "https://www.tatacliq.com/search/?searchCategory=all&text={q}",
+    "meesho": "https://www.meesho.com/search?q={q}",
+    "ajio": "https://www.ajio.com/search/?text={q}",
+    "noise": "https://www.gonoise.com/search?q={q}",
+    "boat": "https://www.boat-lifestyle.com/search?q={q}",
+    "vijay sales": "https://www.vijaysales.com/search/{q}",
+    "walmart": "https://www.walmart.com/search?q={q}",
+    "best buy": "https://www.bestbuy.com/site/searchpage.jsp?st={q}",
+    "ebay": "https://www.ebay.com/sch/i.html?_nkw={q}",
+    "target": "https://www.target.com/s?searchTerm={q}",
+}
+
+
+def store_link(store: str, title: str) -> str | None:
+    name = store.lower().replace("www.", "").strip()
+    for key, pattern in STORE_SEARCH.items():
+        if name == key or name.startswith(key) or (key.startswith("amazon") and name == key.replace(".", " ")):
+            return pattern.format(q=quote_plus(title[:80]))
+    return None
 
 
 def max_price(query: str) -> Decimal | None:
@@ -68,7 +102,10 @@ def _clean(raw: dict) -> dict | None:
         "rating": rating,
         "reviews": reviews,
         "store": str(raw.get("source") or "the store")[:60],
-        "link": str(link),
+        # The store's own page when we know the store, else Google's page listing all sellers.
+        "link": store_link(str(raw.get("source") or ""), str(raw.get("title") or "")) or str(link),
+        "store_link": store_link(str(raw.get("source") or ""), str(raw.get("title") or "")) is not None,
+        "compare_link": str(link),
         "thumbnail": raw.get("thumbnail"),
         "delivery": str(raw.get("delivery") or "")[:80] or None,
     }
