@@ -7,6 +7,8 @@ export type Account = {
   email: string;
   fullName: string | null;
   isOwner: boolean;
+  // Has this person set their own PayGuard PIN yet?
+  hasPin: boolean;
 };
 
 export type LiveAlert = {
@@ -23,6 +25,7 @@ export type Session = {
   setTamil: (tamil: boolean) => void;
   logout: (message?: string) => void;
   goTo: (tab: TabName) => void;
+  pinSaved: () => void;
   handleError: (error: unknown) => string;
 };
 
@@ -50,10 +53,11 @@ export const setUpPhoneSecurity = async (token: string) => {
 export const confirmWithSecurity = async (
   token: string,
   action: PendingAction,
+  pin: string,
 ): Promise<AssistantReply> => {
   const signature = await signConfirmation(action.id, action.summary);
   const reply = await api<AssistantReply>('/api/chat/confirm', token, {
-    body: {action_id: action.id, signature},
+    body: {action_id: action.id, signature, pin},
   });
   playSound(reply.event);
   return reply;

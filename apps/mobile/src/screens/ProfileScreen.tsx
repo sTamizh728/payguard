@@ -3,12 +3,15 @@ import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 
 import {api} from '../api';
 import {securityStatus} from '../native';
+import PinSetup from '../components/PinSetup';
 import {Session, setUpPhoneSecurity, t} from '../session';
 import {colors, ui} from '../theme';
 
 const ProfileScreen = ({session}: {session: Session}) => {
   const {account, tamil} = session;
   const [security, setSecurity] = useState('');
+  const [changingPin, setChangingPin] = useState(false);
+  const [pinMessage, setPinMessage] = useState('');
 
   useEffect(() => {
     if (!account) {
@@ -67,6 +70,35 @@ const ProfileScreen = ({session}: {session: Session}) => {
             accessibilityRole="button"
             style={ui.secondaryButton}>
             <Text style={ui.secondaryButtonText}>{t(tamil, 'Set up security again', 'பாதுகாப்பை மீண்டும் அமை')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {account && changingPin && (
+        <PinSetup
+          token={account.token}
+          tamil={tamil}
+          change
+          onDone={() => {
+            setChangingPin(false);
+            setPinMessage(t(tamil, 'Your new PayGuard PIN is saved.', 'புதிய PIN சேமிக்கப்பட்டது.'));
+          }}
+          onCancel={() => setChangingPin(false)}
+        />
+      )}
+
+      {account && !changingPin && (
+        <View style={ui.card}>
+          <Text style={ui.heading} accessibilityRole="header">
+            {t(tamil, 'PayGuard PIN', 'PayGuard PIN')}
+          </Text>
+          <Text style={ui.body} accessibilityLiveRegion="polite">
+            {pinMessage ||
+              t(tamil, 'Asked before sending money, refunding and showing your balance.',
+                'பணம் அனுப்ப, திருப்ப, இருப்பைப் பார்க்க தேவை.')}
+          </Text>
+          <TouchableOpacity onPress={() => setChangingPin(true)} accessibilityRole="button" style={ui.secondaryButton}>
+            <Text style={ui.secondaryButtonText}>{t(tamil, 'Change PIN', 'PIN-ஐ மாற்று')}</Text>
           </TouchableOpacity>
         </View>
       )}

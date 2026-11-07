@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     # Money moves only with a signature from the phone's fingerprint/PIN key.
     require_device_signature: bool = True
 
+    # ...and with the person's own PayGuard PIN as well.
+    require_app_pin: bool = True
+
     @property
     def public_base_url(self) -> str:
         """This server's public address, e.g. https://payguard-api-0msk.onrender.com."""

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.security import bearer_scheme, get_current_user
 from app.models.user import User
-from app.services import payment_service, security_service
+from app.services import payment_service, pin_service, security_service
 
 router = APIRouter(prefix="/api/security", tags=["Security"])
 
@@ -35,7 +35,28 @@ def security_status(current_user: User = Depends(get_current_user)):
     return {
         "has_device_key": security_service.has_device_key(current_user.id),
         "required": settings.require_device_signature,
+        "has_pin": pin_service.has_pin(current_user.id),
+        "pin_required": settings.require_app_pin,
     }
+
+
+class PinRequest(BaseModel):
+    pin: str = Field(min_length=4, max_length=6)
+    # Needed to change an existing PIN, unless the login is under 5 minutes old.
+    old_pin: str | None = Field(default=None, max_length=6)
+
+
+@router.post("/pin")
+def set_pin(
+    data: PinRequest,
+    current_user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+):
+    try:
+        pin_service.set_pin(current_user.id, data.pin, data.old_pin, _token_age_seconds(credentials))
+    except pin_service.PinError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    return {"has_pin": True}
 
 
 @router.post("/device-key")
@@ -61,6 +82,7 @@ def register_device_key(
 class BalanceRequest(BaseModel):
     challenge: str = Field(min_length=10, max_length=64)
     signature: str | None = Field(default=None, max_length=200)
+    pin: str | None = Field(default=None, max_length=6)
 
 
 def _owner_only(user: User) -> None:
@@ -81,6 +103,11 @@ def balance_challenge(current_user: User = Depends(get_current_user)):
 async def balance(data: BalanceRequest, current_user: User = Depends(get_current_user)):
     """Step 2: show the PayPal wallet balance only for a valid signature."""
     _owner_only(current_user)
+
+    if settings.require_app_pin:
+        checked = pin_service.check_pin(current_user.id, data.pin)
+        if not checked.ok:
+            raise HTTPException(status_code=403, detail=checked.message)
 
     signed = security_service.verify_challenge(current_user.id, data.challenge, data.signature)
     if settings.require_device_signature and not signed:

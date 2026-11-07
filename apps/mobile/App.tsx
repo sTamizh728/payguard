@@ -14,6 +14,7 @@ import {
 
 import {api, LoginExpired} from './src/api';
 import LockScreen from './src/components/LockScreen';
+import PinSetup from './src/components/PinSetup';
 import LoginCard from './src/components/LoginCard';
 import TabBar, {TabName} from './src/components/TabBar';
 import AssistantScreen from './src/screens/AssistantScreen';
@@ -154,9 +155,14 @@ const App = () => {
     [logout],
   );
 
+  const pinSaved = useCallback(
+    () => setAccount(current => (current ? {...current, hasPin: true} : current)),
+    [],
+  );
+
   const session: Session = useMemo(
-    () => ({account, liveAlerts, tamil, setTamil, logout, goTo: setTab, handleError}),
-    [account, liveAlerts, tamil, logout, handleError],
+    () => ({account, liveAlerts, tamil, setTamil, logout, goTo: setTab, handleError, pinSaved}),
+    [account, liveAlerts, tamil, logout, handleError, pinSaved],
   );
 
   // Real-time alerts from PayPal webhooks: check every 20 seconds while open.
@@ -203,11 +209,14 @@ const App = () => {
       await saveLogin(refreshToken); // stay logged in until Log out
     }
     const data = await api('/api/auth/me', token);
+    const status = await api('/api/security/status', token).catch(() => null);
     setAccount({
       token,
       email: data.email,
       fullName: data.full_name,
       isOwner: Boolean(data.is_owner),
+      // Unknown (server busy): don't block the app; the server still asks for it.
+      hasPin: status ? Boolean(status.has_pin) || !status.pin_required : true,
     });
     setAuthMessage('');
 
@@ -462,7 +471,12 @@ const App = () => {
       ) : null}
 
       <View style={styles.body}>
-        {tab === 'assistant' ? (
+        {account && !account.hasPin ? (
+          // First time: choose the PayGuard PIN before anything else.
+          <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+            <PinSetup token={account.token} tamil={tamil} onDone={pinSaved} />
+          </ScrollView>
+        ) : tab === 'assistant' ? (
           screen()
         ) : (
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">

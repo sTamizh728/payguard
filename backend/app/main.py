@@ -7,6 +7,7 @@ from app.services.payment_service import (
 )
 from app.core.config import settings
 from app.core.database import Base, engine
+from app.models import app_pin  # noqa: F401  (new tables must be imported before create_all)
 from app.services.transaction_service import save_completed_capture
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
