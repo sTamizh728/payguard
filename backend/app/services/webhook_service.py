@@ -108,6 +108,15 @@ def describe(event: dict) -> tuple[str, str, int | None, str | None, str | None]
         reason = str(resource.get("reason") or "a problem").replace("_", " ").lower()
         return "dispute", f"A customer opened a dispute ({reason}). Please review it.", None, None, None
 
+    if kind.startswith("BILLING.SUBSCRIPTION.") or kind == "PAYMENT.SALE.COMPLETED":
+        # An autopay started in PayGuard: update it and tell its subscriber.
+        from app.services import autopay_service
+
+        ours = autopay_service.apply_webhook(kind, resource)
+        if ours is not None:
+            user_id, text = ours
+            return "autopay", text, user_id, None, None
+
     if kind.startswith("BILLING.SUBSCRIPTION."):
         what = kind.split(".")[-1].replace("_", " ").lower()
         if kind.endswith("PAYMENT.FAILED"):
@@ -122,6 +131,13 @@ def describe(event: dict) -> tuple[str, str, int | None, str | None, str | None]
 
 def store(event: dict) -> bool:
     """Save the alert (and update the payout). Returns False for a duplicate event."""
+    event_id = str(event.get("id") or "")[:64] or None
+    if event_id:
+        # PayPal re-sends events: never apply the same one twice.
+        with SessionLocal() as db:
+            if db.scalar(select(Notification.id).where(Notification.event_id == event_id)) is not None:
+                return False
+
     described = describe(event)
     if described is None:
         return True
@@ -137,7 +153,7 @@ def store(event: dict) -> bool:
                 user_id = payout.requested_by
 
         db.add(Notification(
-            event_id=str(event.get("id") or "")[:64] or None,
+            event_id=event_id,
             user_id=user_id,
             kind=kind,
             text=text[:300],
