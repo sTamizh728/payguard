@@ -254,7 +254,14 @@ change_autopay = _tool(
     change=("STRING", "cancel, pause or resume"),
 )
 
-TRACK_TOOLS = [show_payment_history, show_autopays, start_autopay, change_autopay]
+answer_question = _tool(
+    "answer_question",
+    "The person is answering a question PayGuard just asked: their name, street, area, city, "
+    "PIN code, country, state, phone number, skip, or yes to save.",
+    answer=("STRING", "Exactly what the person said"),
+)
+
+TRACK_TOOLS = [show_payment_history, show_autopays, start_autopay, change_autopay, answer_question]
 
 TOOLS = [
     *SHOP_TOOLS,

@@ -51,8 +51,15 @@ def world(monkeypatch):
 
     calls = []
 
-    async def fake_order(lines, reference, shipping=None):
-        calls.append(dict(lines=lines, shipping=shipping))
+    vault = SimpleNamespace(accepts=True)
+
+    async def fake_order(lines, reference, shipping=None, vault_id=None, save_paypal=False):
+        calls.append(dict(lines=lines, shipping=shipping, vault_id=vault_id, save_paypal=save_paypal))
+        if vault_id:
+            captures = [{"capture_id": f"CAP{len(calls)}", "status": "COMPLETED", "amount": "1.00",
+                         "currency": "USD"}] if vault.accepts else []
+            return {"order_id": f"PPORDER{len(calls)}", "approval_url": None,
+                    "status": "COMPLETED" if vault.accepts else "PAYER_ACTION_REQUIRED", "captures": captures}
         return {"order_id": f"PPORDER{len(calls)}", "approval_url": f"https://paypal.test/checkout/{len(calls)}"}
 
     monkeypatch.setattr(payment_service, "create_paypal_item_order", fake_order)
@@ -61,7 +68,7 @@ def world(monkeypatch):
     app.include_router(shop_api.router)
     app.include_router(phone_api.router)
     app.dependency_overrides[get_current_user] = lambda: BUYER
-    return SimpleNamespace(Session=Session, calls=calls, client=TestClient(app))
+    return SimpleNamespace(Session=Session, calls=calls, client=TestClient(app), vault=vault)
 
 
 def orders(Session):
@@ -137,6 +144,7 @@ def test_checkout_uses_server_prices_and_empties_cart(world, catalog):
     order = world.client.post("/api/shop/checkout").json()
 
     assert order["total"] == "139.97"
+    assert world.calls[0]["save_paypal"] is True and world.calls[0]["vault_id"] is None
     assert world.calls[0]["lines"] == [("Apple iPhone Charger", Decimal("19.99"), 2),
                                        ("Apple MagSafe Battery Pack", Decimal("99.99"), 1)]
     # The person's own delivery address goes to PayPal and onto the order.
@@ -193,7 +201,7 @@ def test_checkout_over_limit(world, catalog):
 
 
 def test_paypal_down_keeps_the_cart(world, catalog, monkeypatch):
-    async def broken(lines, reference, shipping=None):
+    async def broken(lines, reference, **options):
         raise RuntimeError("PayPal order failed (HTTP 500).")
 
     monkeypatch.setattr(payment_service, "create_paypal_item_order", broken)
@@ -608,3 +616,171 @@ def test_order_waits_for_the_slowest_item():
     from datetime import date
     days = shop_service.expected_delivery(["Ships overnight", "Ships in 2 weeks"], date(2026, 11, 6))
     assert days.isoformat() == "2026-11-22"
+
+
+# ---------- voice checkout: address one question at a time, then PIN + fingerprint ----------
+
+def answer(text):
+    async def understand(t, role="customer"):
+        # In Live voice the AI calls answer_question; its 'answer' is ignored, the words are used.
+        return {"action": "answer_question", "answer": "IGNORED 999 Fake Street"}
+    return asyncio.run(chat_flow.handle_message(BUYER, text, understand))
+
+
+def clear_address(side_db):
+    from app.models.delivery_address import DeliveryAddress
+
+    with side_db() as db:
+        db.query(DeliveryAddress).delete()
+        db.commit()
+
+
+def test_voice_asks_the_address_one_by_one(world, catalog, side_db):
+    clear_address(side_db)
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+
+    first = say("checkout", action="checkout_cart")
+    assert first.reply.startswith("Before you pay, I need your delivery address.")
+    assert first.reply.endswith("What is the full name for the delivery?")
+    assert first.pending_action is None
+
+    steps = [
+        ("Anna Buyer", "house number and street"),
+        ("12 Gandhi Road", "area or landmark"),
+        ("skip", "Which city?"),
+        ("Chennai", "PIN code"),
+        ("six zero zero, double zero one", "Which country?"),
+        ("India", "Which state?"),
+        ("Tamil Nadu", "phone number"),
+    ]
+    for said, next_question in steps:
+        assert next_question in answer(said).reply, said
+    readback = answer("skip")
+    assert readback.reply == ("I have: Anna Buyer, 12 Gandhi Road, Chennai, Tamil Nadu, 600001, IN. "
+                              "Say yes to save it, or say change and the part, like change city.")
+
+    assert answer("change the city").reply == "Which city?"
+    assert "Madurai" in answer("Madurai").reply  # straight back to the read-back
+    assert world.calls == []  # nothing ordered yet
+
+    done = answer("yes")
+    assert done.reply.startswith("Address saved. Your order")
+    assert "delivered to Madurai, 600001" in done.reply
+    assert done.pending_action["type"] == "checkout"
+    assert address_service.get(1)["city"] == "Madurai"
+    assert world.calls[0]["shipping"]["address"]["admin_area_2"] == "Madurai"
+
+
+def test_voice_address_bad_pin_code_asks_again(world, catalog, side_db):
+    clear_address(side_db)
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    say("checkout", action="checkout_cart")
+    for said in ("Anna", "12 Gandhi Road", "skip", "Chennai"):
+        answer(said)
+    assert "digit by digit" in answer("near the temple").reply
+    assert "Which country?" in answer("6 0 0 0 0 1").reply
+
+
+def test_voice_address_save_error_reasks_that_part(world, catalog, side_db):
+    clear_address(side_db)
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    say("checkout", action="checkout_cart")
+    for said in ("Anna", "12 Gandhi Road", "skip", "Chennai", "6000", "India", "Tamil Nadu", "skip"):
+        answer(said)
+    retry = answer("yes")
+    assert retry.reply.startswith("An Indian PIN code has 6 digits.") and "PIN code" in retry.reply
+    assert answer("600001").reply.startswith("I have:")
+    assert answer("yes").reply.startswith("Address saved.")
+
+
+def test_cancel_stops_the_address_questions(world, catalog, side_db):
+    clear_address(side_db)
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    say("checkout", action="checkout_cart")
+    assert answer("cancel").reply == "Okay, I stopped. Nothing was saved or paid."
+    assert address_service.get(1) is None
+    assert chat_flow._session(1).address_step is None
+
+
+def save_paypal_for_buyer():
+    shop_service._save_paypal(1, "VAULT-1", "buyer@paypal.test")
+
+
+def test_first_payment_saves_paypal(world, catalog, monkeypatch):
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    world.client.post("/api/shop/checkout")
+
+    async def capture(order_id):
+        return {"order_id": order_id, "status": "COMPLETED", "payer_email": "b@x.test", "payer_id": "P1",
+                "vault_id": "VAULT-9",
+                "captures": [{"capture_id": "CAP1", "status": "COMPLETED", "amount": "19.99", "currency": "USD"}]}
+
+    monkeypatch.setattr(payment_service, "capture_paypal_order", capture)
+    from app.services import transaction_service
+    monkeypatch.setattr(transaction_service, "save_completed_capture", lambda *a, **k: None)
+    world.client.post("/api/shop/complete", json={"order_id": "PPORDER1"})
+    assert shop_service.saved_paypal(1) == "VAULT-9"
+
+
+def test_saved_paypal_pays_after_pin_and_fingerprint(world, catalog, monkeypatch):
+    from app.services import pin_service, transaction_service
+
+    monkeypatch.setattr(pin_service, "SessionLocal", world.Session)
+    monkeypatch.setattr(settings, "require_app_pin", True)
+    monkeypatch.setattr(settings, "require_device_signature", False)
+    monkeypatch.setattr(transaction_service, "save_completed_capture", lambda *a, **k: None)
+    pin_service.set_pin(1, "4826", None, 0)
+    save_paypal_for_buyer()
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 2})
+
+    ready = say("checkout", action="checkout_cart")
+    assert ready.pending_action["type"] == "shop_pay"
+    assert "Total $39.98, delivered to Chennai, 600001" in ready.reply
+    assert world.calls == []  # nothing charged before the PIN + fingerprint
+
+    wrong = asyncio.run(chat_flow.confirm(BUYER, ready.pending_action["id"], None, "1111"))
+    assert "not right" in wrong.reply and world.calls == []
+
+    paid = asyncio.run(chat_flow.confirm(BUYER, ready.pending_action["id"], None, "4826"))
+    assert paid.event == "payment_sent" and paid.reply.startswith("Paid. Order ")
+    assert world.calls[0]["vault_id"] == "VAULT-1"
+    assert orders(world.Session)[0].status == "PAID"
+    assert world.client.get("/api/shop/cart").json()["items"] == []
+
+
+def test_shop_pay_button_uses_the_same_flow(world, catalog):
+    save_paypal_for_buyer()
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    r = world.client.post("/api/shop/pay").json()
+    assert r["pending_action"]["type"] == "shop_pay" and world.calls == []
+    world.client.delete("/api/shop/saved-paypal")
+    r = world.client.post("/api/shop/pay").json()
+    assert r["pending_action"]["type"] == "checkout"
+
+
+def test_cart_changed_after_confirm_box_pays_nothing(world, catalog, monkeypatch):
+    monkeypatch.setattr(settings, "require_device_signature", False)
+    save_paypal_for_buyer()
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    ready = say("checkout", action="checkout_cart")
+    world.client.post("/api/shop/cart", json={"product_id": 105, "quantity": 1})
+    result = asyncio.run(chat_flow.confirm(BUYER, ready.pending_action["id"], None, None))
+    assert "cart changed" in result.reply and world.calls == []
+
+
+def test_refused_saved_paypal_is_forgotten_and_cart_kept(world, catalog, monkeypatch):
+    monkeypatch.setattr(settings, "require_device_signature", False)
+    save_paypal_for_buyer()
+    world.vault.accepts = False
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    ready = say("checkout", action="checkout_cart")
+    result = asyncio.run(chat_flow.confirm(BUYER, ready.pending_action["id"], None, None))
+    assert "did not accept your saved PayPal" in result.reply and result.event == "failed"
+    assert shop_service.saved_paypal(1) is None
+    assert len(world.client.get("/api/shop/cart").json()["items"]) == 1
+
+
+@pytest.mark.parametrize("text,digits", [("six zero zero zero zero one", "600001"), ("600 001", "600001"),
+                                         ("double nine triple four 1", "994441"), ("oh one two", "012")])
+def test_spoken_digits(text, digits):
+    assert chat_flow._digits(text) == digits

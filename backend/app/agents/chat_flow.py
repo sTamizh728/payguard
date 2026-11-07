@@ -76,10 +76,23 @@ class PendingAutopay:
 
 
 @dataclass
+class PendingShopPay:
+    """Pay the cart with the buyer's saved PayPal after the PIN + fingerprint."""
+    id: str
+    total: Decimal
+    summary: str
+    expires_at: float
+
+
+@dataclass
 class ChatSession:
     strikes: int = 0          # unsafe requests seen (NOT cleared by cancel)
     locked_until: float = 0.0
-    pending: PendingRefund | PendingPayout | PendingAutopay | None = None
+    pending: PendingRefund | PendingPayout | PendingAutopay | PendingShopPay | None = None
+    # Asking the delivery address one question at a time (voice checkout).
+    address_step: str | None = None
+    address: dict = field(default_factory=dict)
+    address_fix_one: bool = False
     # Shopping memory: product ids of the last search, and the product last described.
     last_results: list[int] = field(default_factory=list)
     current_product: int | None = None
@@ -181,7 +194,15 @@ async def handle_message(user: User, text: str, understand) -> ChatReply:
 
     if guardrails.words(text) & {"cancel", "stop"} and not _about_autopay(text):
         session.pending = None
+        if session.address_step:
+            session.address_step = None
+            return ChatReply("Okay, I stopped. Nothing was saved or paid.")
         return ChatReply(CANCELLED)
+
+    # Answering one of the delivery-address questions: the person's own words are
+    # the answer. The AI never fills in an address.
+    if session.address_step:
+        return await _address_answer(user, session, text)
 
     if guardrails.is_exact_confirm(text):
         if session.pending and settings.require_device_signature:
@@ -392,18 +413,7 @@ async def _shop(user: User, session: ChatSession, action: str, intent: dict, tex
             return ChatReply(f"Your latest orders. {lines}")
 
         # checkout_cart
-        order = await shop_service.checkout_cart(user.id)
-        return ChatReply(
-            f"Your order {order['code']} is ready: total ${order['total']:.2f}. "
-            "Tap Pay with PayPal to finish.",
-            pending_action={
-                "id": order["code"],
-                "type": "checkout",
-                "summary": f"{order['summary']}, ${order['total']:.2f}",
-                "url": order["approval_url"],
-            },
-            event="request_sent",
-        )
+        return await start_checkout(user, session)
 
     except (shop_service.ShopError, catalog_service.CatalogError) as error:
         return ChatReply(str(error), event="failed")
@@ -867,8 +877,10 @@ async def _confirm_payout(user: User, pending: PendingPayout) -> ChatReply:
     )
 
 
-def _pending_public(pending: PendingRefund | PendingPayout | PendingAutopay) -> dict:
-    if isinstance(pending, PendingAutopay):
+def _pending_public(pending: PendingRefund | PendingPayout | PendingAutopay | PendingShopPay) -> dict:
+    if isinstance(pending, PendingShopPay):
+        kind, summary = "shop_pay", f"Pay ${pending.total:.2f} with your saved PayPal: {pending.summary}"
+    elif isinstance(pending, PendingAutopay):
         kind, summary = "autopay", f"{pending.change.capitalize()} autopay {pending.number}: {pending.name}"
     elif isinstance(pending, PendingPayout):
         kind, summary = "payout", f"Send {_money(pending.amount)} USD to {pending.name}"
@@ -938,6 +950,9 @@ async def confirm(
 
     if isinstance(pending, PendingAutopay):
         return await _confirm_autopay(user, pending)
+
+    if isinstance(pending, PendingShopPay):
+        return await _confirm_shop_pay(user, pending)
 
     if not is_merchant_admin(user):
         return ChatReply(OWNER_ONLY)
@@ -1098,3 +1113,202 @@ async def _confirm_autopay(user: User, pending: PendingAutopay) -> ChatReply:
         return ChatReply(f"{error} Nothing was changed.", event="failed")
     done = {"cancel": "cancelled", "pause": "paused", "resume": "resumed"}[pending.change]
     return ChatReply(f"Done. Your {item['name']} autopay is {done}.", event="request_sent")
+
+
+# ---------- checkout: delivery address by voice, then pay ----------
+
+ADDRESS_STEPS = [
+    ("full_name", "What is the full name for the delivery?"),
+    ("line1", "What is the house number and street?"),
+    ("line2", "Any area or landmark? Say skip if there is none."),
+    ("city", "Which city?"),
+    ("postal_code", "What is the PIN code or postal code? Say it digit by digit."),
+    ("country_code", "Which country? For example India."),
+    ("state", "Which state?"),
+    ("phone", "A phone number for the delivery person? Say skip if you don't want to give one."),
+]
+ADDRESS_QUESTIONS = dict(ADDRESS_STEPS)
+OPTIONAL_FIELDS = {"line2", "phone"}
+SKIP_WORDS = {"skip", "none", "no", "nothing", "nil", "illai", "இல்லை", "வேண்டாம்"}
+YES_WORDS = {"yes", "yeah", "yep", "correct", "right", "save", "ok", "okay", "sure", "ஆம்", "சரி", "ஆமாம்"}
+FIELD_WORDS = {
+    "full_name": {"name"}, "line1": {"street", "house", "door"}, "line2": {"area", "landmark"},
+    "city": {"city", "town"}, "postal_code": {"pin", "postal", "zip", "pincode"},
+    "country_code": {"country"}, "state": {"state"}, "phone": {"phone", "mobile"},
+}
+COUNTRIES = {
+    "india": "IN", "bharat": "IN", "இந்தியா": "IN", "united states": "US", "usa": "US", "america": "US",
+    "us": "US", "united kingdom": "GB", "uk": "GB", "england": "GB", "britain": "GB", "canada": "CA",
+    "australia": "AU", "singapore": "SG", "malaysia": "MY", "sri lanka": "LK", "uae": "AE",
+    "united arab emirates": "AE", "dubai": "AE", "germany": "DE", "france": "FR", "japan": "JP",
+}
+DIGIT_WORDS = {"zero": "0", "oh": "0", "o": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+               "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9"}
+
+
+def _digits(text: str) -> str:
+    """'six zero zero, double zero one' -> '600001'. Digits typed as digits also work."""
+    out, double = [], False
+    for token in text.lower().replace("-", " ").replace(",", " ").split():
+        if token in ("double", "triple"):
+            double = 2 if token == "double" else 3
+            continue
+        digit = DIGIT_WORDS.get(token) or ("".join(ch for ch in token if ch.isdigit()) or None)
+        if digit:
+            out.append(digit * (double or 1) if len(digit) == 1 else digit)
+        double = False
+    return "".join(out)
+
+
+def _country(text: str) -> str | None:
+    said = " ".join(text.lower().replace(".", " ").split())
+    for name, code in COUNTRIES.items():
+        if f" {name} " in f" {said} ":
+            return code
+    letters = said.replace(" ", "")
+    return letters.upper() if len(letters) == 2 and letters.isalpha() else None
+
+
+def _address_readback(session: ChatSession) -> ChatReply:
+    from app.services import address_service
+
+    session.address_step = "confirm"
+    return ChatReply(
+        f"I have: {address_service.one_line(session.address)}. "
+        "Say yes to save it, or say change and the part, like change city."
+    )
+
+
+def _ask(session: ChatSession, step: str, prefix: str = "") -> ChatReply:
+    session.address_step = step
+    return ChatReply(f"{prefix}{ADDRESS_QUESTIONS[step]}".strip())
+
+
+def _next_step(after: str) -> str | None:
+    names = [name for name, _ in ADDRESS_STEPS]
+    index = names.index(after) + 1
+    return names[index] if index < len(names) else None
+
+
+async def _address_answer(user: User, session: ChatSession, text: str) -> ChatReply:
+    from app.services import address_service
+
+    step = session.address_step
+    said = guardrails.words(text)
+
+    if step == "confirm":
+        wanted = next((f for f, words in FIELD_WORDS.items() if said & words), None)
+        if wanted and said & {"change", "wrong", "fix", "edit", "மாற்று"}:
+            session.address_fix_one = True
+            return _ask(session, wanted)
+        if said & YES_WORDS:
+            try:
+                address_service.save(user.id, session.address)
+            except address_service.AddressError as error:
+                message = str(error)
+                bad = next((f for f, words in FIELD_WORDS.items()
+                            if any(w in message.lower() for w in words)), "line1")
+                session.address_fix_one = True
+                return _ask(session, bad, f"{message} ")
+            session.address_step = None
+            session.address = {}
+            try:
+                reply = await start_checkout(user, session)
+            except shop_service.ShopError as error:
+                reply = ChatReply(str(error))
+            return ChatReply(f"Address saved. {reply.reply}", pending_action=reply.pending_action,
+                             event=reply.event)
+        return ChatReply("Please say yes to save the address, or say change and the part, like change city.")
+
+    # One answer, one field.
+    if step in OPTIONAL_FIELDS and said & SKIP_WORDS and len(said) <= 3:
+        value = None
+    elif step == "postal_code":
+        value = _digits(text) if any(ch.isdigit() for ch in _digits(text)) else ""
+        if not (3 <= len(value) <= 10):
+            return ChatReply("Sorry, I didn't get the PIN code. Please say it digit by digit, like six zero zero zero zero one.")
+    elif step == "phone":
+        value = _digits(text)
+        if not (6 <= len(value) <= 15):
+            return ChatReply("Sorry, please say the phone number digit by digit, or say skip.")
+    elif step == "country_code":
+        value = _country(text)
+        if value is None:
+            return ChatReply("Sorry, which country? For example India or United States.")
+    elif step == "state":
+        if said & SKIP_WORDS and len(said) <= 3:
+            value = None
+        else:
+            value = text.strip(" .")[:80]
+    else:
+        value = text.strip(" .")[:150]
+        if len(value) < 2:
+            return ChatReply(f"Sorry, I didn't catch that. {ADDRESS_QUESTIONS[step]}")
+
+    session.address[step] = value
+    nxt = None if session.address_fix_one else _next_step(step)
+    session.address_fix_one = False if nxt is None else session.address_fix_one
+    if nxt is None:
+        return _address_readback(session)
+    return _ask(session, nxt)
+
+
+async def start_checkout(user: User, session: ChatSession) -> ChatReply:
+    """
+    Voice / chat / Shop button checkout:
+    no delivery address yet -> ask it one question at a time;
+    saved PayPal -> PIN + fingerprint pays right here;
+    otherwise -> PayPal's page once (it can save PayPal for next time).
+    """
+    from app.services import address_service
+
+    address = address_service.get(user.id)
+    if address is None:
+        session.address = {}
+        return _ask(session, "full_name", "Before you pay, I need your delivery address. I'll ask one thing at a time. ")
+
+    cart = await shop_service.get_cart(user.id)
+    if not cart["items"]:
+        return ChatReply("Your cart is empty.")
+    where = f"{address['city']}, {address['postal_code']}"
+    summary = ", ".join(f"{i['quantity']} x {i['title']}" for i in cart["items"])[:200]
+
+    if shop_service.saved_paypal(user.id):
+        session.pending = PendingShopPay(
+            id=secrets.token_urlsafe(16), total=cart["total"], summary=summary,
+            expires_at=time.monotonic() + ACTION_TTL_SECONDS,
+        )
+        return ChatReply(
+            f"Your order: {summary}. Total ${cart['total']:.2f}, delivered to {where}. "
+            "Type your PayGuard PIN and confirm with your fingerprint to pay with your saved PayPal.",
+            pending_action=_pending_public(session.pending),
+            event="confirm_needed",
+        )
+
+    order = await shop_service.checkout_cart(user.id)
+    return ChatReply(
+        f"Your order {order['code']} is ready: total ${order['total']:.2f}, delivered to {where}. "
+        "Tap Pay with PayPal to finish. PayPal can save your account so next time "
+        "your PIN and fingerprint are enough.",
+        pending_action={
+            "id": order["code"],
+            "type": "checkout",
+            "summary": f"{order['summary']}, ${order['total']:.2f}",
+            "url": order["approval_url"],
+        },
+        event="request_sent",
+    )
+
+
+async def _confirm_shop_pay(user: User, pending: PendingShopPay) -> ChatReply:
+    try:
+        done = await shop_service.checkout_cart(user.id, use_saved_paypal=True, expected_total=pending.total)
+    except shop_service.ShopError as error:
+        return ChatReply(str(error), event="failed")
+    order = done["order"]
+    when = shop_service.delivery_words(order.get("delivery_by"))
+    return ChatReply(
+        f"Paid. Order {order['code']}: ${order['total']} with your saved PayPal. "
+        f"Expected delivery by {when}. Your receipt is in Shop, My orders.",
+        event="payment_sent",
+    )

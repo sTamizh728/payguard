@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.database import SessionLocal
 from app.models.cart_item import CartItem
+from app.models.saved_paypal import SavedPayPal
 from app.models.shop_order import ShopOrder
 from app.services import catalog_service, payment_service
 
@@ -283,13 +284,44 @@ async def get_cart(user_id: int) -> dict:
     return {"items": items, "total": total}
 
 
-async def checkout_cart(user_id: int) -> dict:
-    """Turn the cart into one PayPal order. The cart is emptied once the order exists."""
+def saved_paypal(user_id: int) -> str | None:
+    with SessionLocal() as db:
+        return db.scalar(select(SavedPayPal.vault_id).where(SavedPayPal.user_id == user_id))
+
+
+def _save_paypal(user_id: int, vault_id: str, payer_email: str | None) -> None:
+    with SessionLocal() as db:
+        row = db.scalar(select(SavedPayPal).where(SavedPayPal.user_id == user_id))
+        if row is None:
+            db.add(SavedPayPal(user_id=user_id, vault_id=vault_id, payer_email=payer_email))
+        else:
+            row.vault_id, row.payer_email = vault_id, payer_email
+        db.commit()
+
+
+def forget_paypal(user_id: int) -> None:
+    with SessionLocal() as db:
+        for row in db.scalars(select(SavedPayPal).where(SavedPayPal.user_id == user_id)).all():
+            db.delete(row)
+        db.commit()
+
+
+async def checkout_cart(user_id: int, use_saved_paypal: bool = False, expected_total: Decimal | None = None) -> dict:
+    """
+    Turn the cart into one PayPal order. The cart is emptied once the order exists.
+    use_saved_paypal: pay now with the buyer's saved PayPal (after PIN + fingerprint).
+    Otherwise the buyer approves on PayPal's page, which also offers to save PayPal.
+    """
     cart = await get_cart(user_id)
     if not cart["items"]:
         raise ShopError("Your cart is empty.")
     if cart["total"] > CART_MAX_TOTAL:
         raise ShopError(f"For your safety, one order can be up to ${CART_MAX_TOTAL:.0f}.")
+    if expected_total is not None and cart["total"] != expected_total:
+        raise ShopError("Your cart changed, so nothing was paid. Please check out again.")
+    vault_id = saved_paypal(user_id) if use_saved_paypal else None
+    if use_saved_paypal and not vault_id:
+        raise ShopError("You have no saved PayPal yet. Please pay in PayPal once.")
 
     from app.services import address_service
 
@@ -305,9 +337,18 @@ async def checkout_cart(user_id: int) -> dict:
         paypal = await payment_service.create_paypal_item_order(
             lines, reference=f"shop-{code}-{secrets.token_hex(4)}",
             shipping=address_service.paypal_shipping(address),
+            vault_id=vault_id, save_paypal=not vault_id,
         )
     except RuntimeError:
+        if vault_id:
+            raise ShopError("Your saved PayPal could not pay right now. Nothing was paid.") from None
         raise ShopError("PayPal could not create the order right now.") from None
+    paid_capture = next((c for c in paypal.get("captures", []) if c.get("status") in ("COMPLETED", "PENDING")), None)
+    if vault_id and paid_capture is None:
+        # PayPal refused the saved PayPal (removed, expired...): forget it, keep the cart.
+        forget_paypal(user_id)
+        raise ShopError("PayPal did not accept your saved PayPal, so nothing was paid. "
+                        "Please pay in PayPal once more.")
 
     units = sum(i["quantity"] for i in cart["items"])
     summary = ", ".join(f"{i['quantity']} x {i['title']}" for i in cart["items"])[:300]
@@ -316,7 +357,7 @@ async def checkout_cart(user_id: int) -> dict:
         db.add(ShopOrder(
             code=code, user_id=user_id, channel="app", product_id="cart", quantity=units,
             total=cart["total"], summary=summary, paypal_order_id=paypal["order_id"],
-            approval_url=paypal["approval_url"], status="CREATED",
+            approval_url=paypal["approval_url"] or "saved-paypal", status="CREATED",
             items_json=json.dumps([
                 {"title": i["title"], "price": f"{i['price']:.2f}", "quantity": i["quantity"]}
                 for i in cart["items"]
@@ -331,6 +372,15 @@ async def checkout_cart(user_id: int) -> dict:
         except IntegrityError:
             db.rollback()
             raise ShopError("Please try again.") from None
+
+    if vault_id:
+        from app.services import transaction_service, webhook_service
+
+        transaction_service.save_completed_capture(paypal["order_id"], {**paid_capture, "status": "COMPLETED"})
+        order = mark_paid(paypal["order_id"], paid_capture.get("capture_id"))
+        webhook_service.add_notification(user_id, "order_paid", confirmation_text(order))
+        return {"code": code, "total": cart["total"], "summary": summary, "approval_url": None,
+                "paid": True, "order": _view(order)}
 
     return {"code": code, "total": cart["total"], "summary": summary, "approval_url": paypal["approval_url"]}
 
@@ -359,6 +409,9 @@ async def complete_checkout(paypal_order_id: str) -> dict:
 
     capture_id = next((c["capture_id"] for c in result["captures"] if c.get("status") == "COMPLETED"), None)
     order = mark_paid(result["order_id"], capture_id)
+    if order is not None and order.user_id is not None and result.get("vault_id"):
+        # The buyer agreed in PayPal: next time, PIN + fingerprint is enough.
+        _save_paypal(order.user_id, result["vault_id"], result.get("payer_email"))
     if order is not None and order.user_id is not None:
         webhook_service.add_notification(
             order.user_id, "order_paid", confirmation_text(order),

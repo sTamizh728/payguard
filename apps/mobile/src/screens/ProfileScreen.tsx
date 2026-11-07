@@ -103,6 +103,31 @@ const ProfileScreen = ({session}: {session: Session}) => {
         </View>
       )}
 
+      {account && (
+        <View style={ui.card}>
+          <Text style={ui.heading} accessibilityRole="header">
+            {t(tamil, 'Saved PayPal for the shop', 'கடைக்கான சேமித்த PayPal')}
+          </Text>
+          <Text style={ui.muted}>
+            {t(tamil, 'After your first shop payment PayPal can save your account, so later orders need only your PIN and fingerprint.',
+              'முதல் கட்டணத்துக்குப் பின் PayPal உங்கள் கணக்கைச் சேமிக்கலாம்; பிறகு PIN, கைரேகை போதும்.')}
+          </Text>
+          <TouchableOpacity
+            onPress={async () => {
+              try {
+                await api('/api/shop/saved-paypal', account.token, {method: 'DELETE'});
+                setPinMessage(t(tamil, 'Saved PayPal removed. Next order opens PayPal again.', 'சேமித்த PayPal நீக்கப்பட்டது.'));
+              } catch (error) {
+                setPinMessage(session.handleError(error));
+              }
+            }}
+            accessibilityRole="button"
+            style={ui.secondaryButton}>
+            <Text style={ui.secondaryButtonText}>{t(tamil, 'Forget saved PayPal', 'சேமித்த PayPal-ஐ நீக்கு')}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <View style={ui.card}>
         <Text style={ui.heading} accessibilityRole="header" nativeID="langLabel">
           {t(tamil, 'Language', 'மொழி')}

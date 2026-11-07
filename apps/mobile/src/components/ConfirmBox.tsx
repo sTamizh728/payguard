@@ -76,7 +76,9 @@ const ConfirmBox = ({action, busy, onConfirm, onCancel}: Props) => {
           ? 'You will pay in PayPal checkout.'
           : wait > 0
             ? `Confirm unlocks in ${wait} seconds.`
-            : 'Type your PayGuard PIN, then confirm with your fingerprint, face or phone PIN.'}
+            : action.type === 'shop_pay'
+              ? 'Pays with your saved PayPal. Type your PayGuard PIN, then use your fingerprint, face or phone PIN.'
+              : 'Type your PayGuard PIN, then confirm with your fingerprint, face or phone PIN.'}
       </Text>
       {!checkout && (
         <PinField label="PayGuard PIN" value={pin} onChange={setPin} onDone={() => !locked && press()} />
