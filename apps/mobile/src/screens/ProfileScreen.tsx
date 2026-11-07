@@ -3,6 +3,7 @@ import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 
 import {api} from '../api';
 import {securityStatus} from '../native';
+import PinField from '../components/PinField';
 import PinSetup from '../components/PinSetup';
 import {Session, setUpPhoneSecurity, t} from '../session';
 import {colors, ui} from '../theme';
@@ -11,6 +12,7 @@ const ProfileScreen = ({session}: {session: Session}) => {
   const {account, tamil} = session;
   const [security, setSecurity] = useState('');
   const [changingPin, setChangingPin] = useState(false);
+  const [securityPin, setSecurityPin] = useState('');
   const [pinMessage, setPinMessage] = useState('');
 
   useEffect(() => {
@@ -58,10 +60,16 @@ const ProfileScreen = ({session}: {session: Session}) => {
           <Text style={ui.body} accessibilityLiveRegion="polite">
             {security || '…'}
           </Text>
+          <PinField
+            label={t(tamil, 'PayGuard PIN (needed on a new phone)', 'PayGuard PIN (புதிய போனில் தேவை)')}
+            value={securityPin}
+            onChange={setSecurityPin}
+          />
           <TouchableOpacity
             onPress={async () => {
               try {
-                const problem = await setUpPhoneSecurity(account.token);
+                const problem = await setUpPhoneSecurity(account.token, securityPin);
+                setSecurityPin('');
                 setSecurity(problem || t(tamil, 'On: payments need your fingerprint, face or PIN.', 'இயக்கத்தில்.'));
               } catch (error) {
                 setSecurity(session.handleError(error));
@@ -175,9 +183,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   langSelected: {
-    borderColor: colors.brandBlue,
+    borderColor: colors.brand,
     borderWidth: 2,
-    backgroundColor: '#E8F0FE',
+    backgroundColor: colors.brandSoft,
   },
   langText: {
     color: colors.ink,

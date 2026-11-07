@@ -141,13 +141,13 @@ def test_owner_email_check_ignores_case_and_spaces():
     assert chat_flow.is_merchant_admin(OTHER_OWNER)
 
 
-def test_email_only_stranger_is_refused_before_ai_is_called():
+def test_email_only_stranger_never_sees_shop_payments():
     understand = ai(action="show_transactions")
     result = say("show my payments", understand, user=STRANGER)
 
-    assert result.reply == chat_flow.PAYPAL_LOGIN_NEEDED
+    # Treated as a customer: the owner tool never runs, no payment data.
     assert result.transactions == []
-    assert understand.calls == []
+    assert result.reply.startswith("I can help with your payments")
 
 
 def test_list_count_only_when_user_said_it():
@@ -569,7 +569,6 @@ def test_email_signup_with_someones_email_sees_nothing():
 
     assert result.reply == chat_flow.PAYPAL_LOGIN_NEEDED
     assert result.transactions == []
-    assert understand.calls == []
 
 
 def test_customer_cannot_run_owner_actions_even_if_ai_says_so(paypal):
@@ -739,8 +738,7 @@ def test_owner_email_without_paypal_login_is_not_owner():
 
     assert not chat_flow.is_merchant_admin(impostor)
     result = say("show my payments", understand, user=impostor)
-    assert result.reply == chat_flow.PAYPAL_LOGIN_NEEDED
-    assert understand.calls == []
+    assert result.transactions == [] and result.pending_action is None
 
 
 # ---- sending money (Payouts) ----

@@ -3,6 +3,7 @@ import {AppState, Linking, StyleSheet, Text, TextInput, TouchableOpacity, View} 
 
 import {api, PendingAction} from '../api';
 import ConfirmBox from '../components/ConfirmBox';
+import Segments from '../components/Segments';
 import AddressCard from '../components/AddressCard';
 import BestProducts from '../components/BestProducts';
 import {playSound} from '../native';
@@ -55,6 +56,7 @@ const ShopScreen = ({session}: {session: Session}) => {
   const [openReceipt, setOpenReceipt] = useState<string | null>(null);
   // Pay with the saved PayPal: PIN + fingerprint, no PayPal page.
   const [pending, setPending] = useState<PendingAction | null>(null);
+  const [part, setPart] = useState<'best' | 'shop' | 'cart' | 'orders'>('best');
 
   const run = async (work: () => Promise<void>) => {
     setBusy(true);
@@ -188,10 +190,22 @@ const ShopScreen = ({session}: {session: Session}) => {
 
   return (
     <View>
+      <Segments
+        value={part}
+        onChange={setPart}
+        items={[
+          {key: 'best', label: t(tamil, 'Best picks', 'சிறந்தவை')},
+          {key: 'shop', label: t(tamil, 'Shop', 'கடை')},
+          {key: 'cart', label: `${t(tamil, 'Cart', 'கூடை')}${cart.items.length ? ` (${cart.items.length})` : ''}`},
+          {key: 'orders', label: t(tamil, 'Orders', 'ஆர்டர்கள்')},
+        ]}
+      />
+
       {/* ---- best-rated products on the web: bought on the store's own site ---- */}
-      <BestProducts token={account.token} tamil={tamil} />
+      {part === 'best' && <BestProducts token={account.token} tamil={tamil} />}
 
       {/* ---- search ---- */}
+      {part === 'shop' && (
       <View style={ui.card}>
         <Text style={ui.title} accessibilityRole="header">
           {t(tamil, 'PayGuard Shop', 'PayGuard கடை')}
@@ -215,7 +229,7 @@ const ShopScreen = ({session}: {session: Session}) => {
             accessibilityRole="button"
             accessibilityLabel={t(tamil, 'Search', 'தேடு')}
             style={[styles.iconButton, (busy || !query.trim()) && ui.disabled]}>
-            <Text style={styles.iconText}>🔍</Text>
+            <Text style={styles.iconText}>{t(tamil, 'Search', 'தேடு')}</Text>
           </TouchableOpacity>
         </View>
         {message ? (
@@ -239,8 +253,10 @@ const ShopScreen = ({session}: {session: Session}) => {
         ))}
       </View>
 
+      )}
+
       {/* ---- details + reviews ---- */}
-      {details && (
+      {part === 'shop' && details && (
         <View style={ui.card}>
           <Text style={ui.title} accessibilityRole="header">{details.title}</Text>
           <Text style={styles.price}>
@@ -293,14 +309,14 @@ const ShopScreen = ({session}: {session: Session}) => {
             accessibilityRole="button"
             accessibilityState={{disabled: busy || details.stock < 1}}
             style={[ui.primaryButton, (busy || details.stock < 1) && ui.disabled]}>
-            <Text style={ui.primaryButtonText}>🛒 {t(tamil, 'Add to cart', 'கூடையில் சேர்')}</Text>
+            <Text style={ui.primaryButtonText}>{t(tamil, 'Add to cart', 'கூடையில் சேர்')}</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      <AddressCard token={account.token} tamil={tamil} />
+      {part === 'cart' && <AddressCard token={account.token} tamil={tamil} />}
 
-      {pending && (
+      {part === 'cart' && pending && (
         <ConfirmBox
           action={pending}
           busy={busy}
@@ -314,6 +330,7 @@ const ShopScreen = ({session}: {session: Session}) => {
       )}
 
       {/* ---- cart ---- */}
+      {part === 'cart' && (
       <View style={ui.card}>
         <Text style={ui.heading} accessibilityRole="header">
           {t(tamil, 'Your cart', 'உங்கள் கூடை')}
@@ -357,8 +374,10 @@ const ShopScreen = ({session}: {session: Session}) => {
         )}
       </View>
 
+      )}
+
       {/* ---- phone orders (only when a Twilio number is set up) ---- */}
-      {phoneNumber && (
+      {part === 'orders' && phoneNumber && (
         <View style={ui.card}>
           <Text style={ui.heading} accessibilityRole="header" nativeID="claimLabel">
             {t(tamil, 'Claim phone order', 'தொலைபேசி ஆர்டரைப் பெறு')}
@@ -387,6 +406,7 @@ const ShopScreen = ({session}: {session: Session}) => {
       )}
 
       {/* ---- orders ---- */}
+      {part === 'orders' && (
       <View style={ui.card}>
         <Text style={ui.heading} accessibilityRole="header">
           {t(tamil, 'My orders', 'என் ஆர்டர்கள்')}
@@ -398,13 +418,13 @@ const ShopScreen = ({session}: {session: Session}) => {
             <Text style={[ui.muted, order.status === 'PAID' && styles.paid]}>
               ${order.total} ·{' '}
               {order.status === 'PAID'
-                ? t(tamil, '✅ Paid', '✅ செலுத்தப்பட்டது')
+                ? t(tamil, 'Paid', 'செலுத்தப்பட்டது')
                 : t(tamil, 'Waiting for payment', 'செலுத்தக் காத்திருக்கிறது')}
               {order.channel === 'phone' ? ` · ${t(tamil, 'phone order', 'தொலைபேசி ஆர்டர்')}` : ''}
             </Text>
             {order.status === 'PAID' && order.delivery_by && (
               <Text style={ui.body}>
-                🚚 {t(tamil, 'Expected delivery by', 'எதிர்பார்க்கும் டெலிவரி')} {longDate(order.delivery_by)}
+                {t(tamil, 'Expected delivery by', 'எதிர்பார்க்கும் டெலிவரி')} {longDate(order.delivery_by)}
               </Text>
             )}
             {order.approval_url && (
@@ -422,7 +442,6 @@ const ShopScreen = ({session}: {session: Session}) => {
                 accessibilityState={{expanded: openReceipt === order.code}}
                 style={ui.secondaryButton}>
                 <Text style={ui.secondaryButtonText}>
-                  🧾{' '}
                   {openReceipt === order.code
                     ? t(tamil, 'Hide receipt', 'ரசீதை மறை')
                     : t(tamil, 'View receipt', 'ரசீதைப் பார்')}
@@ -461,6 +480,7 @@ const ShopScreen = ({session}: {session: Session}) => {
           </View>
         ))}
       </View>
+      )}
     </View>
   );
 };
@@ -478,15 +498,17 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   iconButton: {
-    width: 54,
-    height: 50,
+    minHeight: 48,
+    paddingHorizontal: 16,
     borderRadius: 12,
-    backgroundColor: colors.navy,
+    backgroundColor: colors.brand,
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconText: {
-    fontSize: 22,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
   result: {
     borderWidth: 1,
@@ -496,9 +518,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   selected: {
-    borderColor: colors.brandBlue,
+    borderColor: colors.brand,
     borderWidth: 2,
-    backgroundColor: '#E8F0FE',
+    backgroundColor: colors.brandSoft,
   },
   title: {
     color: colors.ink,

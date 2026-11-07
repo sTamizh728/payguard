@@ -43,6 +43,11 @@ def has_device_key(user_id: int) -> bool:
         return db.scalar(select(DeviceKey.id).where(DeviceKey.user_id == user_id)) is not None
 
 
+def is_same_key(user_id: int, public_key_b64: str) -> bool:
+    with SessionLocal() as db:
+        return db.scalar(select(DeviceKey.public_key).where(DeviceKey.user_id == user_id)) == public_key_b64
+
+
 def register_device_key(user_id: int, public_key_b64: str, token_age_seconds: float) -> None:
     _load_public_key(public_key_b64)
 
@@ -83,16 +88,16 @@ def issue_challenge(user_id: int) -> str:
     return code
 
 
-def challenge_payload(code: str) -> bytes:
-    return f"payguard-balance:{code}".encode()
+def challenge_payload(code: str, purpose: str = "balance") -> bytes:
+    return f"payguard-{purpose}:{code}".encode()
 
 
-def verify_challenge(user_id: int, code: str, signature_b64: str | None) -> bool:
+def verify_challenge(user_id: int, code: str | None, signature_b64: str | None, purpose: str = "balance") -> bool:
     """Single use: the code is gone after one try, right or wrong."""
-    entry = _challenges.pop(code, None)
+    entry = _challenges.pop(code or "", None)
     if entry is None or entry[0] != user_id or entry[1] < time.time():
         return False
-    return _verify(user_id, challenge_payload(code), signature_b64)
+    return _verify(user_id, challenge_payload(code, purpose), signature_b64)
 
 
 def _verify(user_id: int, payload: bytes, signature_b64: str | None) -> bool:

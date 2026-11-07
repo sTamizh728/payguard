@@ -134,6 +134,8 @@ def _own_row(db, user_id: int, autopay_id: int) -> Autopay:
 
 async def _paypal(method: str, path: str, body: dict | None = None) -> dict:
     """One PayPal REST call. Tests replace this."""
+    if ".." in path or "?" in path:
+        raise AutopayError("That is not a valid PayPal reference.")
     token = (await get_access_token())["access_token"]
     async with httpx.AsyncClient(timeout=20.0) as client:
         try:

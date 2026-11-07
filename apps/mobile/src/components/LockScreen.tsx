@@ -4,6 +4,7 @@ import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import {playSound, unlock} from '../native';
 import {t} from '../session';
 import {colors} from '../theme';
+import BrandMark from './BrandMark';
 
 type Props = {
   tamil: boolean;
@@ -33,9 +34,7 @@ const LockScreen = ({tamil, onUnlocked, onLogout}: Props) => {
 
   return (
     <View style={styles.screen} accessibilityViewIsModal>
-      <Text style={styles.icon} importantForAccessibility="no">
-        🔒
-      </Text>
+      <BrandMark size={64} />
       <Text style={styles.title} accessibilityRole="header">
         {t(tamil, 'PayGuard is locked', 'PayGuard பூட்டப்பட்டுள்ளது')}
       </Text>

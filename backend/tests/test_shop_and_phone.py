@@ -711,7 +711,7 @@ def test_first_payment_saves_paypal(world, catalog, monkeypatch):
     world.client.post("/api/shop/checkout")
 
     async def capture(order_id):
-        return {"order_id": order_id, "status": "COMPLETED", "payer_email": "b@x.test", "payer_id": "P1",
+        return {"order_id": order_id, "status": "COMPLETED", "payer_email": "Buyer@Shop.test", "payer_id": "P1",
                 "vault_id": "VAULT-9",
                 "captures": [{"capture_id": "CAP1", "status": "COMPLETED", "amount": "19.99", "currency": "USD"}]}
 
@@ -784,3 +784,20 @@ def test_refused_saved_paypal_is_forgotten_and_cart_kept(world, catalog, monkeyp
                                          ("double nine triple four 1", "994441"), ("oh one two", "012")])
 def test_spoken_digits(text, digits):
     assert chat_flow._digits(text) == digits
+
+
+def test_someone_else_paying_my_link_never_becomes_my_saved_paypal(world, catalog, monkeypatch):
+    """Anna sends her checkout link to Vijay; Vijay pays and saves PayPal. Anna must not get it."""
+    world.client.post("/api/shop/cart", json={"product_id": 104, "quantity": 1})
+    world.client.post("/api/shop/checkout")
+
+    async def capture(order_id):
+        return {"order_id": order_id, "status": "COMPLETED", "payer_email": "vijay@other.test", "payer_id": "P2",
+                "vault_id": "VAULT-VIJAY",
+                "captures": [{"capture_id": "CAP1", "status": "COMPLETED", "amount": "19.99", "currency": "USD"}]}
+
+    monkeypatch.setattr(payment_service, "capture_paypal_order", capture)
+    from app.services import transaction_service
+    monkeypatch.setattr(transaction_service, "save_completed_capture", lambda *a, **k: None)
+    world.client.post("/api/shop/complete", json={"order_id": "PPORDER1"})
+    assert shop_service.saved_paypal(1) is None

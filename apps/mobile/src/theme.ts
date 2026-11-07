@@ -1,41 +1,67 @@
 import {StyleSheet} from 'react-native';
 
+// PayGuard's look: warm paper background, deep ink text, one calm green for
+// "safe" actions, and PayPal's own yellow only on PayPal buttons.
+// Text colours meet WCAG AA (4.5:1) on both page and card backgrounds;
+// borders that show where to tap meet 3:1.
 export const colors = {
-  page: '#F3F6FC',
+  page: '#F5F2EB',
   card: '#FFFFFF',
-  ink: '#101827',
-  muted: '#475569',
-  line: '#B8C4D6',
-  navy: '#101827',
-  brandBlue: '#2563EB',
+  sunk: '#FAF8F3', // rows inside a card
+  ink: '#17202E',
+  muted: '#4D5563',
+  line: '#E2DCCF', // decoration only
+  edge: '#857D6D', // input and button outlines (3:1)
+  navy: '#17202E',
+  brand: '#0D6B57', // PayGuard green: confirm, primary actions
+  brandSoft: '#E3F1EC',
+  brandBlue: '#1D4ED8', // links and selection
   paypalYellow: '#FFC439',
   paypalNavy: '#003087',
   good: '#166534',
-  goodBg: '#ECFDF3',
-  warn: '#B45309',
-  warnBg: '#FFFBEB',
+  goodBg: '#EAF6EE',
+  warn: '#8A4B08',
+  warnBg: '#FDF4E3',
   bad: '#B42318',
-  badBg: '#FEF3F2',
+  badBg: '#FDEEEC',
 };
+
+export const space = {xs: 4, s: 8, m: 12, l: 16, xl: 24};
+
+// The smallest thing anyone has to tap (Android guideline: 48dp).
+export const TOUCH = 48;
 
 export const ui = StyleSheet.create({
   card: {
     backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: space.l,
+    marginBottom: space.l,
   },
   title: {
     color: colors.ink,
-    fontSize: 22,
-    fontWeight: '800',
-    marginBottom: 12,
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    marginBottom: space.s,
   },
   heading: {
     color: colors.ink,
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '700',
-    marginBottom: 10,
+    marginBottom: space.s,
+  },
+  // Small caps label above a group of cards, like a section name in a bank app.
+  section: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: space.s,
+    marginTop: space.xs,
   },
   body: {
     color: colors.ink,
@@ -44,60 +70,68 @@ export const ui = StyleSheet.create({
   },
   muted: {
     color: colors.muted,
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 22,
   },
   error: {
     color: colors.bad,
     fontSize: 15,
-    marginTop: 10,
+    lineHeight: 22,
+    marginTop: space.m,
   },
   label: {
     color: colors.ink,
     fontSize: 15,
     fontWeight: '600',
     marginBottom: 6,
-    marginTop: 10,
+    marginTop: space.m,
   },
   input: {
-    borderWidth: 1,
-    borderColor: colors.line,
+    borderWidth: 1.5,
+    borderColor: colors.edge,
     borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingHorizontal: space.m,
+    paddingVertical: 10,
+    minHeight: TOUCH,
     fontSize: 17,
     color: colors.ink,
     backgroundColor: colors.card,
   },
   primaryButton: {
-    backgroundColor: colors.navy,
-    paddingVertical: 15,
-    paddingHorizontal: 16,
+    backgroundColor: colors.brand,
+    minHeight: 52,
+    paddingVertical: 14,
+    paddingHorizontal: space.l,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 14,
+    justifyContent: 'center',
+    marginTop: space.m,
   },
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 17,
     fontWeight: '700',
+    textAlign: 'center',
   },
   secondaryButton: {
     backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    paddingVertical: 13,
-    paddingHorizontal: 16,
+    borderWidth: 1.5,
+    borderColor: colors.edge,
+    minHeight: TOUCH,
+    paddingVertical: 12,
+    paddingHorizontal: space.l,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 12,
+    justifyContent: 'center',
+    marginTop: space.m,
   },
   secondaryButtonText: {
     color: colors.ink,
     fontSize: 16,
     fontWeight: '600',
+    textAlign: 'center',
   },
   disabled: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
 });

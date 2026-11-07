@@ -355,7 +355,7 @@ const AssistantScreen = ({session}: {session: Session}) => {
           <Text style={styles.liveNote} accessibilityLiveRegion="polite">
             {pending
               ? t(tamil, '⏸ Paused: confirm on screen', '⏸ நிறுத்தம்: திரையில் உறுதிப்படுத்துங்கள்')
-              : t(tamil, '🔴 Live with Gemini: just talk. Tap again to end.', '🔴 Gemini உடன் நேரடி: பேசுங்கள். முடிக்க மீண்டும் தட்டவும்.')}
+              : t(tamil, 'Live with Gemini: just talk. Tap again to end.', 'Gemini உடன் நேரடி: பேசுங்கள். முடிக்க மீண்டும் தட்டவும்.')}
           </Text>
         )}
         <View style={styles.inputRow}>
@@ -393,7 +393,7 @@ const AssistantScreen = ({session}: {session: Session}) => {
             accessibilityState={{disabled: live}}
             style={[styles.voiceButton, styles.micButton, live && ui.disabled]}>
             <Text style={styles.voiceText}>
-              {listening && !live ? '⏹ ' : '🎙️ '}
+              
               {listening && !live ? t(tamil, 'Stop', 'நிறுத்து') : t(tamil, 'Talk', 'பேசு')}
             </Text>
           </TouchableOpacity>
@@ -404,7 +404,7 @@ const AssistantScreen = ({session}: {session: Session}) => {
             accessibilityState={{checked: live}}
             style={[styles.voiceButton, live ? styles.liveOn : styles.liveOff]}>
             <Text style={styles.voiceText}>
-              {live ? t(tamil, '● Live: ON', '● நேரடி: ஆன்') : t(tamil, '○ Live conversation', '○ நேரடி உரையாடல்')}
+              {live ? t(tamil, 'End live conversation', 'நேரடி உரையாடலை முடி') : t(tamil, 'Live conversation', 'நேரடி உரையாடல்')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -432,11 +432,13 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   you: {
-    backgroundColor: '#E8F0FE',
+    backgroundColor: colors.brandSoft,
     marginLeft: 40,
   },
   payguard: {
     backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
     marginRight: 40,
   },
   from: {
@@ -492,18 +494,20 @@ const styles = StyleSheet.create({
   },
   voiceButton: {
     flex: 1,
+    minHeight: 52,
+    justifyContent: 'center',
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
   },
   micButton: {
-    backgroundColor: colors.brandBlue,
+    backgroundColor: colors.ink,
   },
   liveOff: {
-    backgroundColor: '#475569',
+    backgroundColor: colors.brand,
   },
   liveOn: {
-    backgroundColor: colors.good,
+    backgroundColor: colors.bad,
   },
   voiceText: {
     color: '#FFFFFF',

@@ -35,14 +35,15 @@ export const t = (tamil: boolean, en: string, ta: string) => (tamil ? ta : en);
  * Make sure the server knows this phone's fingerprint/PIN key. Call right
  * after login: replacing a key needs a fresh login.
  */
-export const setUpPhoneSecurity = async (token: string) => {
+export const setUpPhoneSecurity = async (token: string, pin?: string) => {
   const local = await securityStatus();
   if (!local.available) {
     return local.reason;
   }
 
   const publicKey = await getPublicKey();
-  await api('/api/security/device-key', token, {body: {public_key: publicKey}});
+  // A new phone needs the PayGuard PIN, so a stolen login can't swap in its own key.
+  await api('/api/security/device-key', token, {body: {public_key: publicKey, pin: pin || null}});
   return null;
 };
 

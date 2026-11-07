@@ -146,10 +146,29 @@ class AddressRequest(BaseModel):
     phone: str | None = Field(default=None, max_length=20)
 
 
+# Free search quota is small: a few searches per person per hour is plenty.
+WEB_SEARCHES_PER_HOUR = 15
+CLAIMS_PER_HOUR = 10
+_recent: dict[tuple[str, int], list[float]] = {}
+
+
+def _rate_limit(kind: str, user_id: int, per_hour: int) -> None:
+    import time
+
+    now = time.time()
+    stamps = [t for t in _recent.get((kind, user_id), []) if now - t < 3600]
+    if len(stamps) >= per_hour:
+        raise HTTPException(status_code=429, detail="Too many tries. Please wait a while and try again.")
+    stamps.append(now)
+    _recent[(kind, user_id)] = stamps
+
+
 @router.get("/web")
 async def web_products(q: str = Query(min_length=2, max_length=100), current_user: User = Depends(get_current_user)):
     """Top-rated products from Google Shopping with store links (bought on the store's site)."""
     from app.services import address_service, web_shop_service
+
+    _rate_limit("web", current_user.id, WEB_SEARCHES_PER_HOUR)
 
     address = address_service.get(current_user.id)
     country = (address or {}).get("country_code") or "us"
@@ -179,6 +198,7 @@ def put_address(data: AddressRequest, current_user: User = Depends(get_current_u
 @router.post("/claim")
 def claim(data: ClaimRequest, current_user: User = Depends(get_current_user)):
     """Open an order made by phone call, using the code read out on the call."""
+    _rate_limit("claim", current_user.id, CLAIMS_PER_HOUR)  # 6-digit codes must not be guessable
     try:
         return shop_service.claim_phone_order(data.code, current_user.id)
     except shop_service.ShopError as error:

@@ -3,7 +3,8 @@ import {Alert, Linking, StyleSheet, Text, TextInput, TouchableOpacity, View} fro
 
 import {api} from '../api';
 import PinField from '../components/PinField';
-import {playSound, signBalanceCode, unlock} from '../native';
+import Segments from '../components/Segments';
+import {playSound, signActionCode, signBalanceCode, unlock} from '../native';
 import {Session, t} from '../session';
 import {colors, ui} from '../theme';
 
@@ -138,7 +139,11 @@ const HistoryScreen = ({session}: {session: Session}) => {
     const go = () =>
       run(async () => {
         setAutopayPin('');
-        const updated = await api(`/api/autopay/${item.id}/${what}`, account!.token, {body: {pin}});
+        const {challenge} = await api('/api/security/challenge', account!.token);
+        const signature = await signActionCode(challenge, `${what} ${item.name} autopay`);
+        const updated = await api(`/api/autopay/${item.id}/${what}`, account!.token, {
+          body: {pin, challenge, signature},
+        });
         playSound('request_sent');
         return `${updated.name}: ${STATUS_WORDS[updated.status] ?? updated.status}.`;
       });
@@ -202,7 +207,7 @@ const HistoryScreen = ({session}: {session: Session}) => {
           }}
           accessibilityRole="button"
           style={ui.primaryButton}>
-          <Text style={ui.primaryButtonText}>🔒 {t(tamil, 'Unlock Track', 'திற')}</Text>
+          <Text style={ui.primaryButtonText}>{t(tamil, 'Unlock Track', 'திற')}</Text>
         </TouchableOpacity>
         {message ? <Text style={ui.error}>{message}</Text> : null}
       </View>
@@ -249,27 +254,14 @@ const HistoryScreen = ({session}: {session: Session}) => {
 
   return (
     <View>
-      <View style={styles.sections} accessibilityRole="tablist">
-        {SECTIONS.map((s, index) => {
-          const selected = section === s.key;
-          return (
-            <TouchableOpacity
-              key={s.key}
-              onPress={() => setSection(s.key)}
-              accessibilityRole="tab"
-              accessibilityState={{selected}}
-              accessibilityLabel={`${t(tamil, s.en, s.ta)}, ${index + 1} of ${SECTIONS.length}`}
-              style={[styles.section, selected && styles.sectionSelected]}>
-              <Text style={[styles.sectionText, selected && styles.sectionTextSelected]} numberOfLines={1}>
-                {t(tamil, s.en, s.ta)}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      <Segments
+        value={section}
+        onChange={setSection}
+        items={SECTIONS.map(s => ({key: s.key, label: t(tamil, s.en, s.ta)}))}
+      />
 
       <TouchableOpacity onPress={load} accessibilityRole="button" style={[ui.secondaryButton, styles.refresh]}>
-        <Text style={ui.secondaryButtonText}>↻ {t(tamil, 'Refresh', 'புதுப்பி')}</Text>
+        <Text style={ui.secondaryButtonText}>{t(tamil, 'Refresh', 'புதுப்பி')}</Text>
       </TouchableOpacity>
       {message ? (
         <Text style={[ui.body, styles.message]} accessibilityLiveRegion="polite">
@@ -296,7 +288,7 @@ const HistoryScreen = ({session}: {session: Session}) => {
               ) : null}
               <PinField label="PayGuard PIN" value={balancePin} onChange={setBalancePin} onDone={checkBalance} />
               <TouchableOpacity onPress={checkBalance} accessibilityRole="button" style={ui.primaryButton}>
-                <Text style={ui.primaryButtonText}>🔒 {t(tamil, 'Check balance', 'இருப்பைப் பார்')}</Text>
+                <Text style={ui.primaryButtonText}>{t(tamil, 'Check balance', 'இருப்பைப் பார்')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -408,7 +400,7 @@ const HistoryScreen = ({session}: {session: Session}) => {
             </Text>
             {!adding ? (
               <TouchableOpacity onPress={() => setAdding(true)} accessibilityRole="button" style={ui.secondaryButton}>
-                <Text style={ui.secondaryButtonText}>＋ {t(tamil, 'Add autopay', 'சேர்')}</Text>
+                <Text style={ui.secondaryButtonText}>{t(tamil, 'Add an autopay', 'சேர்')}</Text>
               </TouchableOpacity>
             ) : (
               <>
@@ -579,9 +571,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   smallSelected: {
-    borderColor: colors.brandBlue,
+    borderColor: colors.brand,
     borderWidth: 2,
-    backgroundColor: '#E8F0FE',
+    backgroundColor: colors.brandSoft,
   },
   smallText: {
     color: colors.ink,

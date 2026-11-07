@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.security import get_current_user
 from app.models.user import User
 from app.services import paypal_login_service
+from app.services import auth_service
 from app.services.auth_service import (
     authenticate_paypal_user,
     authenticate_user,
@@ -45,11 +46,12 @@ def _login_tokens(user_id: int) -> TokenResponse:
 @router.post("/refresh", response_model=TokenResponse)
 def refresh(data: RefreshRequest):
     """A fresh access token for a phone that is still logged in."""
-    user_id = use_refresh_token(data.refresh_token)
-    if user_id is None:
+    found = auth_service.use_refresh_token_with_login_time(data.refresh_token)
+    if found is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Please log in again.")
+    user_id, logged_in_at = found
     return TokenResponse(
-        access_token=create_access_token(user_id),
+        access_token=create_access_token(user_id, logged_in_at),
         expires_in=settings.access_token_expire_minutes * 60,
     )
 

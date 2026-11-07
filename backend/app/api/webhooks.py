@@ -13,6 +13,8 @@ router = APIRouter(tags=["Notifications"])
 @router.post("/api/webhooks/paypal")
 async def paypal_webhook(request: Request):
     """PayPal calls this. Nothing is trusted until PayPal confirms the signature."""
+    if int(request.headers.get("content-length") or 0) > 200_000:
+        raise HTTPException(status_code=413, detail="Too large.")
     body = await request.body()
     if len(body) > 200_000:
         raise HTTPException(status_code=413, detail="Too large.")

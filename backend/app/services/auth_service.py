@@ -22,12 +22,20 @@ def verify_password(password: str, hashed_password: str) -> bool:
     return password_hash.verify(password, hashed_password)
 
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: int, logged_in_at: datetime | None = None) -> str:
+    """
+    logged_in_at: when the person really logged in (password or PayPal). A token
+    renewed from a saved login keeps the old time, so it never counts as a fresh login.
+    """
     now = datetime.now(timezone.utc)
+    login = logged_in_at or now
+    if login.tzinfo is None:
+        login = login.replace(tzinfo=timezone.utc)
 
     payload = {
         "sub": str(user_id),
         "iat": now,
+        "auth_time": int(login.timestamp()),
         "exp": now + timedelta(
             minutes=settings.access_token_expire_minutes
         ),
@@ -158,6 +166,12 @@ def issue_refresh_token(user_id: int) -> str:
 
 def use_refresh_token(token: str) -> int | None:
     """The user id for a valid (not logged-out) token, or None."""
+    found = use_refresh_token_with_login_time(token)
+    return found[0] if found else None
+
+
+def use_refresh_token_with_login_time(token: str) -> tuple[int, datetime] | None:
+    """(user id, when that login happened) for a valid token, or None."""
     with SessionLocal() as db:
         row = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == _hash_token(token)))
         if row is None or row.revoked_at is not None:
@@ -166,8 +180,9 @@ def use_refresh_token(token: str) -> int | None:
         if user is None or not user.is_active:
             return None
         row.last_used_at = datetime.now(timezone.utc)
+        logged_in_at = row.created_at
         db.commit()
-        return row.user_id
+        return row.user_id, logged_in_at
 
 
 def revoke_refresh_token(token: str) -> None:

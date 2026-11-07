@@ -8,6 +8,9 @@ from app.core.database import SessionLocal
 from app.models.delivery_address import DeliveryAddress
 
 FIELDS = ("full_name", "line1", "line2", "city", "state", "postal_code", "country_code", "phone")
+# Same limits as the database columns.
+MAX_LENGTH = {"full_name": 100, "line1": 150, "line2": 150, "city": 80, "state": 80,
+              "postal_code": 20, "country_code": 2, "phone": 20}
 REQUIRED = {"full_name": "your name", "line1": "the street address", "city": "the city",
             "postal_code": "the postal code (PIN code)", "country_code": "the country"}
 # PayPal needs the state for these countries.
@@ -37,7 +40,7 @@ def one_line(address: dict | None) -> str:
 
 
 def save(user_id: int, data: dict) -> dict:
-    clean = {f: " ".join(str(data.get(f) or "").split()) or None for f in FIELDS}
+    clean = {f: " ".join(str(data.get(f) or "").split())[:MAX_LENGTH[f]] or None for f in FIELDS}
     for field, words in REQUIRED.items():
         if not clean[field]:
             raise AddressError(f"Please add {words}.")
