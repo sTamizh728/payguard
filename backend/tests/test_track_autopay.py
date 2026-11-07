@@ -418,3 +418,43 @@ def test_voice_payment_history(world, friend_orders):
     run(friend_pay_service.start(ANNA, PRIYA_EMAIL, Decimal("5")))
     run(friend_pay_service.complete(1, "ORDER1"))
     assert "$5.00 to Priya Raj (your PayPal)" in say("my payments", {"action": "show_payment_history"}).reply
+
+
+# ---------- review fixes ----------
+
+def test_two_taps_make_one_subscription(world):
+    first = run(autopay_service.start_paypal_autopay(1, "streambox"))
+    second = run(autopay_service.start_paypal_autopay(1, "streambox"))
+    assert second["id"] == first["id"] and second["approval_url"] == first["approval_url"]
+    assert len(world.paypal.subscriptions) == 1
+
+
+def test_track_buttons_need_the_pin(world, monkeypatch):
+    monkeypatch.setattr(settings, "require_app_pin", True)
+    pin_service.set_pin(1, "4826", None, 0)
+    autopay_service.add_manual(1, "Phone bill", "15", "MONTH", (date.today() + timedelta(days=20)).isoformat())
+    assert world.client.post("/api/autopay/1/cancel").status_code == 403
+    assert world.client.post("/api/autopay/1/cancel", json={"pin": "1111"}).status_code == 403
+    assert autopay_service.list_autopays(1)[0]["status"] == "ACTIVE"
+    assert world.client.post("/api/autopay/1/cancel", json={"pin": "4826"}).json()["status"] == "CANCELLED"
+    # Checking the status again needs no PIN.
+    assert world.client.post("/api/autopay/1/refresh").status_code == 200
+
+
+def test_pending_capture_counts_as_sent(world, monkeypatch):
+    async def create(to_email, amount, reference):
+        return {"order_id": "ORDER1", "approval_url": "https://paypal.test/pay/1"}
+
+    async def capture(order_id):
+        return {"order_id": order_id, "status": "COMPLETED",
+                "captures": [{"capture_id": "CAP1", "status": "PENDING", "amount": "5.00", "currency": "USD"}]}
+
+    monkeypatch.setattr(friend_pay_service, "_create_order", create)
+    monkeypatch.setattr(payment_service, "capture_paypal_order", capture)
+    run(friend_pay_service.start(ANNA, PRIYA_EMAIL, Decimal("5")))
+    done = run(friend_pay_service.complete(1, "ORDER1"))
+    assert done["status"] == "PENDING" and done["transaction_id"] == "CAP1"
+    assert "still processing" in notes(world.Session)[0]
+    from app.services import track_service
+
+    assert track_service.payment_history(ANNA)[0]["status_text"] == "Sent, PayPal is still processing it"

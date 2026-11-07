@@ -211,6 +211,14 @@ async def start_paypal_autopay(user_id: int, biller_key: str) -> dict:
         ))
         if running is not None:
             raise AutopayError(f"You already have an autopay for {biller['name']}.")
+        waiting = db.scalar(select(Autopay).where(
+            Autopay.user_id == user_id, Autopay.name == biller["name"], Autopay.source == "paypal",
+            Autopay.status == "APPROVAL_PENDING",
+        ))
+        if waiting is not None:
+            # Two taps must never make two subscriptions: send them to the same approval page.
+            number = next(i["number"] for i in list_autopays(user_id) if i["id"] == waiting.id)
+            return _view(waiting, number)
 
     plan = await _plan_id(biller_key)
     data = await _paypal("POST", "/v1/billing/subscriptions", {

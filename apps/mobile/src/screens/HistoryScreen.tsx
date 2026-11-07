@@ -46,6 +46,7 @@ const HistoryScreen = ({session}: {session: Session}) => {
   const [message, setMessage] = useState('');
   const [balance, setBalance] = useState('');
   const [balancePin, setBalancePin] = useState('');
+  const [autopayPin, setAutopayPin] = useState('');
   const [busy, setBusy] = useState(false);
   // "Add an autopay you pay elsewhere"
   const [adding, setAdding] = useState(false);
@@ -129,9 +130,15 @@ const HistoryScreen = ({session}: {session: Session}) => {
     });
 
   const changeAutopay = (item: any, what: 'cancel' | 'pause' | 'resume') => {
+    const pin = autopayPin;
+    if (pin.length < 4) {
+      setMessage(t(tamil, 'Type your PayGuard PIN above the autopays first.', 'முதலில் PayGuard PIN-ஐ தட்டச்சு செய்யுங்கள்.'));
+      return;
+    }
     const go = () =>
       run(async () => {
-        const updated = await api(`/api/autopay/${item.id}/${what}`, account!.token, {body: {}});
+        setAutopayPin('');
+        const updated = await api(`/api/autopay/${item.id}/${what}`, account!.token, {body: {pin}});
         playSound('request_sent');
         return `${updated.name}: ${STATUS_WORDS[updated.status] ?? updated.status}.`;
       });
@@ -328,6 +335,13 @@ const HistoryScreen = ({session}: {session: Session}) => {
             </Text>
             {autopays.length === 0 && (
               <Text style={ui.muted}>{t(tamil, 'No autopays yet.', 'இன்னும் இல்லை.')}</Text>
+            )}
+            {autopays.some((a: any) => a.status !== 'CANCELLED' && a.status !== 'EXPIRED') && (
+              <PinField
+                label={t(tamil, 'PayGuard PIN to pause, resume or cancel', 'மாற்ற PayGuard PIN')}
+                value={autopayPin}
+                onChange={setAutopayPin}
+              />
             )}
             {autopays.map((a: any) =>
               row(

@@ -48,14 +48,15 @@ and buttons for everything:
 - **PayPal:** Orders v2 (shop and pay-a-friend), Payouts, Subscriptions, Payments v2 refunds,
   Balances (Reporting), Log in with PayPal (OpenID Connect), Webhooks with signature verification.
 - **Also:** Twilio Voice (signed requests) for phone ordering, DummyJSON as a demo catalog.
-- **296 automated tests** with PayPal, Gemini, Twilio and the database faked.
+- **299 automated tests** with PayPal, Gemini, Twilio and the database faked.
 
 ## Safety design
 - Names, amounts and numbers must come from the person's own words, never the AI's.
 - Prompt-injection phrases are blocked in code before the AI sees them, typed or spoken.
-- Every payout, refund and autopay change needs your own PayGuard PIN (Argon2-hashed, locks
-  after 5 wrong tries) AND a signature from the phone's secure hardware, verified by the
-  server: a stolen login, a replayed signature or a spoken "yes" cannot move money.
+- Every wallet payout and refund needs your own PayGuard PIN (Argon2-hashed, locks after 5
+  wrong tries) AND a signature from the phone's secure hardware, verified by the server: a
+  stolen login, a replayed signature or a spoken "yes" cannot move money. Autopay changes
+  and the balance need the PIN too; PayPal-page payments are approved in PayPal itself.
 - Coming back from PayPal proves nothing: the server reads the real status from PayPal.
 - A scam guard (new recipient, pressure words, big amounts, rapid payments) locks Confirm for
   30 seconds, enforced by the server.

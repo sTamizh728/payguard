@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.agents import chat_flow
+from app.core.config import settings
 from app.core.security import get_current_user
 from app.models.user import User
-from app.services import autopay_service, friend_pay_service, payout_service, shop_service, track_service
+from app.services import autopay_service, friend_pay_service, payout_service, pin_service, shop_service, track_service
 
 router = APIRouter(prefix="/api", tags=["Track"])
 
@@ -82,13 +83,25 @@ def add_manual_autopay(data: ManualAutopay, current_user: User = Depends(get_cur
         _fail(error)
 
 
+class AutopayChange(BaseModel):
+    pin: str | None = Field(default=None, max_length=6)
+
+
 @router.post("/autopay/{autopay_id}/{what}")
-async def change_autopay(autopay_id: int, what: str, current_user: User = Depends(get_current_user)):
+async def change_autopay(
+    autopay_id: int, what: str, data: AutopayChange | None = None,
+    current_user: User = Depends(get_current_user),
+):
     if what not in ("cancel", "pause", "resume", "refresh"):
         raise HTTPException(status_code=404, detail="Not found.")
     try:
         if what == "refresh":
             return await autopay_service.refresh(current_user.id, autopay_id)
+        # Resume restarts charges; cancel / pause change money too: PayGuard PIN first.
+        if settings.require_app_pin:
+            checked = pin_service.check_pin(current_user.id, data.pin if data else None)
+            if not checked.ok:
+                raise HTTPException(status_code=403, detail=checked.message)
         return await autopay_service.change(current_user.id, autopay_id, what)
     except autopay_service.AutopayError as error:
         _fail(error)
