@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
+import {Linking, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
 
 import {api, AssistantReply, PendingAction} from '../api';
 import ConfirmBox from '../components/ConfirmBox';
@@ -8,6 +8,9 @@ import {confirmWithSecurity, Session, t} from '../session';
 import {colors, ui} from '../theme';
 
 type Contact = {name: string; email: string};
+// 'wallet': the PayGuard business wallet (owner only, PIN + fingerprint).
+// 'own': the person's own PayPal account, approved on PayPal's page.
+type Source = 'wallet' | 'own';
 
 const SendScreen = ({session}: {session: Session}) => {
   const {account, tamil} = session;
@@ -18,15 +21,21 @@ const SendScreen = ({session}: {session: Session}) => {
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [source, setSource] = useState<Source>(account?.isOwner ? 'wallet' : 'own');
 
   const load = useCallback(async () => {
-    if (!account?.isOwner) {
+    if (!account) {
       return;
     }
     try {
-      const data = await api('/api/contacts', account.token);
-      setContacts(data.contacts);
-      setLeftToday(data.left_today);
+      if (account.isOwner) {
+        const data = await api('/api/contacts', account.token);
+        setContacts(data.contacts);
+        setLeftToday(data.left_today);
+      } else {
+        const data = await api('/api/pay/contacts', account.token);
+        setContacts(data.contacts);
+      }
     } catch (error) {
       setMessage(session.handleError(error));
     }
@@ -44,23 +53,6 @@ const SendScreen = ({session}: {session: Session}) => {
     );
   }
 
-  if (!account.isOwner) {
-    return (
-      <View style={ui.card}>
-        <Text style={ui.heading} accessibilityRole="header">
-          {t(tamil, 'Send money', 'பணம் அனுப்பு')}
-        </Text>
-        <Text style={ui.body}>
-          {t(
-            tamil,
-            'Only the account owner can send money from this PayPal wallet. You can see your purchases in History and ask for refunds in the Assistant.',
-            'இந்த PayPal கணக்கிலிருந்து உரிமையாளர் மட்டுமே பணம் அனுப்ப முடியும். உங்கள் வாங்குதல்களை வரலாற்றில் பார்க்கலாம்.',
-          )}
-        </Text>
-      </View>
-    );
-  }
-
   const review = async () => {
     setMessage('');
     const value = Number(amount.replace(',', '.'));
@@ -73,6 +65,26 @@ const SendScreen = ({session}: {session: Session}) => {
       return;
     }
     setBusy(true);
+    if (source === 'own') {
+      try {
+        const started = await api('/api/pay/start', account.token, {
+          body: {email: chosen.email, amount: value.toFixed(2)},
+        });
+        setPending({
+          id: String(started.id),
+          type: 'checkout',
+          summary: `Send $${started.amount} to ${started.name} from your PayPal`,
+          url: started.approval_url,
+        });
+        playSound('confirm_needed');
+      } catch (error) {
+        setMessage(session.handleError(error));
+        playSound('failed');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     try {
       const reply = await api<AssistantReply>('/api/payouts/prepare', account.token, {
         body: {email: chosen.email, amount: value.toFixed(2)},
@@ -96,6 +108,16 @@ const SendScreen = ({session}: {session: Session}) => {
 
   const confirm = async (pin: string) => {
     if (!pending) {
+      return;
+    }
+    if (pending.type === 'checkout' && pending.url) {
+      // PayPal's own page: PayPal logs the person in and they approve there.
+      const url = pending.url;
+      setPending(null);
+      setMessage(t(tamil, 'Approve the payment in PayPal. PayGuard finishes it when you come back.',
+        'PayPal-இல் அனுமதியுங்கள். திரும்பி வந்ததும் PayGuard முடிக்கும்.'));
+      playSound('request_sent');
+      await Linking.openURL(url);
       return;
     }
     setBusy(true);
@@ -129,9 +151,47 @@ const SendScreen = ({session}: {session: Session}) => {
         <Text style={ui.title} accessibilityRole="header">
           {t(tamil, 'Send money', 'பணம் அனுப்பு')}
         </Text>
+        {account.isOwner && (
+          <>
+            <Text style={ui.label} nativeID="fromLabel">
+              {t(tamil, 'Send from', 'எதிலிருந்து')}
+            </Text>
+            <View accessibilityRole="radiogroup" accessibilityLabelledBy="fromLabel">
+              {([
+                ['wallet', t(tamil, 'PayGuard wallet', 'PayGuard கணக்கு'),
+                  t(tamil, 'Your PIN and fingerprint send it here', 'PIN, கைரேகை மூலம் இங்கேயே')],
+                ['own', t(tamil, 'My own PayPal', 'என் சொந்த PayPal'),
+                  t(tamil, 'You approve it on PayPal\'s page', 'PayPal பக்கத்தில் அனுமதிப்பீர்கள்')],
+              ] as [Source, string, string][]).map(([value, label, hint]) => {
+                const selected = source === value;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    onPress={() => {
+                      setSource(value);
+                      setPending(null);
+                    }}
+                    accessibilityRole="radio"
+                    accessibilityState={{checked: selected}}
+                    accessibilityHint={hint}
+                    style={[styles.contact, selected && styles.contactSelected]}>
+                    <Text style={styles.radio}>{selected ? '◉' : '○'}</Text>
+                    <View style={styles.contactText}>
+                      <Text style={styles.contactName}>{label}</Text>
+                      <Text style={ui.muted}>{hint}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
         <Text style={ui.muted}>
-          {t(tamil, `You can send $${leftToday || '…'} more today (up to $100 at a time).`,
-            `இன்று இன்னும் $${leftToday || '…'} அனுப்பலாம் (ஒருமுறை $100 வரை).`)}
+          {source === 'wallet'
+            ? t(tamil, `You can send $${leftToday || '…'} more today (up to $100 at a time).`,
+              `இன்று இன்னும் $${leftToday || '…'} அனுப்பலாம் (ஒருமுறை $100 வரை).`)
+            : t(tamil, 'Paid from your own PayPal account, up to $100 at a time. PayPal will ask you to log in and approve.',
+              'உங்கள் சொந்த PayPal கணக்கிலிருந்து, ஒருமுறை $100 வரை. PayPal உள்நுழைந்து அனுமதிக்கக் கேட்கும்.')}
         </Text>
 
         <Text style={ui.label} nativeID="toLabel">

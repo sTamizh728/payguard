@@ -308,10 +308,14 @@ async def change(user_id: int, autopay_id: int, what: str) -> dict:
         row = _own_row(db, user_id, autopay_id)
         if row.status in ("CANCELLED", "EXPIRED"):
             raise AutopayError(f"{row.name} autopay has already ended.")
-        sub_id, source = row.paypal_subscription_id, row.source
+        sub_id, source, status = row.paypal_subscription_id, row.source, row.status
+
+    if status == "APPROVAL_PENDING" and what != "cancel":
+        raise AutopayError(f"{row.name} autopay is not approved in PayPal yet.")
 
     target = {"cancel": "CANCELLED", "pause": "SUSPENDED", "resume": "ACTIVE"}[what]
-    if source == "paypal" and sub_id:
+    # Never approved: PayPal can't cancel it (and will never charge it), so just drop it here.
+    if source == "paypal" and sub_id and status != "APPROVAL_PENDING":
         if what == "cancel":
             await _paypal("POST", f"/v1/billing/subscriptions/{sub_id}/cancel", {"reason": "Cancelled in PayGuard"})
         elif what == "pause":

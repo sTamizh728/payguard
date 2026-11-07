@@ -34,6 +34,8 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="accessiblecommerce" android:host="auth" />
             <data android:scheme="accessiblecommerce" android:host="shop" />
+            <data android:scheme="accessiblecommerce" android:host="autopay" />
+            <data android:scheme="accessiblecommerce" android:host="pay" />
         </intent-filter>
       </activity>
     </application>

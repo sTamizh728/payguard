@@ -16,7 +16,7 @@ const TABS: {name: TabName; icon: string; en: string; ta: string}[] = [
   {name: 'assistant', icon: '💬', en: 'Chat', ta: 'அரட்டை'},
   {name: 'shop', icon: '🛒', en: 'Shop', ta: 'கடை'},
   {name: 'send', icon: '💸', en: 'Send', ta: 'அனுப்பு'},
-  {name: 'history', icon: '🧾', en: 'History', ta: 'வரலாறு'},
+  {name: 'history', icon: '📍', en: 'Track', ta: 'கண்காணி'},
   {name: 'profile', icon: '👤', en: 'Profile', ta: 'சுயவிவரம்'},
 ];
 

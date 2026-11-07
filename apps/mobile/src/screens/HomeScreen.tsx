@@ -29,7 +29,7 @@ const HomeScreen = ({session, loginCard}: {session: Session; loginCard: React.Re
             kind: 'bad',
             text: t(
               tamil,
-              `${failed.length} payment(s) need attention. Open History.`,
+              `${failed.length} payment(s) need attention. Open Track.`,
               `${failed.length} கட்டணம்(கள்) கவனிக்க வேண்டும். வரலாறு பாருங்கள்.`,
             ),
           });
