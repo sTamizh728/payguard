@@ -106,7 +106,7 @@ async def complete(user_id: int, paypal_order_id: str) -> dict:
         row = db.scalar(select(FriendPayment).where(FriendPayment.paypal_order_id == paypal_order_id))
         if row is None or row.user_id != user_id:
             raise FriendPayError("That payment was not found.")
-        if row.status == "COMPLETED":
+        if row.status in ("COMPLETED", "PENDING"):
             return _view(row)
 
     try:
@@ -114,7 +114,8 @@ async def complete(user_id: int, paypal_order_id: str) -> dict:
     except RuntimeError:
         raise FriendPayError("PayPal could not finish this payment. Nothing was sent twice.") from None
 
-    capture = next((c for c in result["captures"] if c.get("status") == "COMPLETED"), None)
+    # PENDING: PayPal took the money but is still processing it - that is sent, not an error.
+    capture = next((c for c in result["captures"] if c.get("status") in ("COMPLETED", "PENDING")), None)
     with SessionLocal() as db:
         row = db.scalar(select(FriendPayment).where(FriendPayment.paypal_order_id == paypal_order_id))
         if capture is None:
@@ -122,7 +123,7 @@ async def complete(user_id: int, paypal_order_id: str) -> dict:
                 row.status = "FAILED"
                 db.commit()
             raise FriendPayError("The payment is not finished yet.")
-        row.status = "COMPLETED"
+        row.status = capture["status"]
         row.capture_id = capture.get("capture_id")
         row.completed_at = datetime.now(timezone.utc)
         db.commit()
@@ -131,7 +132,9 @@ async def complete(user_id: int, paypal_order_id: str) -> dict:
     from app.services import webhook_service
 
     webhook_service.add_notification(
-        user_id, "payment_sent", f"You sent ${view['amount']} to {view['name']} from your PayPal.",
+        user_id, "payment_sent",
+        f"You sent ${view['amount']} to {view['name']} from your PayPal."
+        + (" PayPal is still processing it." if view["status"] == "PENDING" else ""),
     )
     return view
 

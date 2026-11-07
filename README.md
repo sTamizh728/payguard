@@ -10,7 +10,7 @@ Built solo for the PayPal AI Hackathon 2026. Everything runs on the PayPal **san
 
 - Backend (live): `https://payguard-api-0msk.onrender.com` (FastAPI on Render, PostgreSQL on Neon)
 - App: React Native 0.88 Android app with its own Kotlin module (`apps/mobile`)
-- 296 automated tests (`backend/tests`), PayPal, Gemini and the database faked
+- 299 automated tests (`backend/tests`), PayPal, Gemini and the database faked
 
 ---
 
@@ -60,7 +60,9 @@ looking at the screen. It is built screen-reader first (TalkBack labels, live re
    approved", look-alike letters and invisible characters are caught in code; two tries lock
    payments for 10 minutes. Spoken tricks are blocked the same way.
 4. **Your own PayGuard PIN** (4-6 digits, chosen right after the first login) is asked before
-   every payment, refund, autopay change and balance check, on top of the fingerprint. It is
+   every PayGuard-wallet payment, refund, autopay change and balance check, on top of the
+   fingerprint. Payments made on PayPal's own page (shop checkout, paying a friend from your
+   own PayPal, approving an autopay) are approved with PayPal's login instead. It is
    stored only as an Argon2 hash; 5 wrong tries lock it for 15 minutes (counted in the database);
    changing it needs the old PIN or a fresh login.
 5. **Fingerprint, face or PIN, checked by the server.** The phone keeps a P-256 key in its

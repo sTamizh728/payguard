@@ -337,7 +337,10 @@ const App = () => {
       setAuthMessage('Finishing your PayPal payment...');
       try {
         const done = await api('/api/pay/complete', current.token, {body: {order_id: params.token}});
-        const text = `Done. You sent $${done.amount} to ${done.name} from your PayPal.`;
+        const text =
+          done.status === 'PENDING'
+            ? `PayPal took $${done.amount} for ${done.name}. It is still processing; see Track.`
+            : `Done. You sent $${done.amount} to ${done.name} from your PayPal.`;
         setAuthMessage(text);
         playSound('payment_sent');
         AccessibilityInfo.announceForAccessibility(text);

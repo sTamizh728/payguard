@@ -48,7 +48,8 @@ def payment_history(user, orders: list[dict] | None = None) -> list[dict]:
             "kind": "friend", "title": f"${p['amount']} to {p['name']} (your PayPal)",
             "amount": p["amount"], "date": p["completed_at"] or p["created_at"],
             "status": p["status"],
-            "status_text": {"COMPLETED": "Sent", "CREATED": "Not finished in PayPal", "FAILED": "Failed"}.get(
+            "status_text": {"COMPLETED": "Sent", "PENDING": "Sent, PayPal is still processing it",
+                            "CREATED": "Not finished in PayPal", "FAILED": "Failed"}.get(
                 p["status"], p["status"].lower()),
         })
 
