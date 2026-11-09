@@ -27,14 +27,9 @@ while, the first screen can take up to a minute to load.
 You need a PayPal **sandbox** (test) account, not your real PayPal login. Choose one:
 
 ### Option A: use our test accounts (quickest)
-
-| Account | Email | Password |
-|---|---|---|
-| Buyer 1 | `________________________` | `____________` |
-| Buyer 2 | `________________________` | `____________` |
-| Shop owner (send from the PayGuard wallet, refunds, balance) | `________________________` | `____________` |
-
-Please don't change these passwords: other testers use them too.
+Ready-made sandbox test accounts (buyers and the shop owner), with their passwords, are in the
+**private testing instructions on Devpost** for the PayPal AI Hackathon judges. Please don't
+change their passwords: other testers use them too.
 
 ### Option B: use your own sandbox account
 1. Go to **https://developer.paypal.com** and log in with any PayPal account.
