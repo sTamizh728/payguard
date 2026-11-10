@@ -8,6 +8,8 @@ phone PIN, or in PayPal's own checkout. The AI never moves money.**
 
 Built solo for the PayPal AI Hackathon 2026. Everything runs on the PayPal **sandbox**.
 
+**Demo video:** https://youtu.be/OMXE-kf5-eA
+
 **Try it:** download `PayGuard.apk` from [Releases](https://github.com/sTamizh728/payguard/releases) and follow the [user guide](docs/USER_GUIDE.md) (test accounts included).
 
 - Backend (live): `https://payguard-api-0msk.onrender.com` (FastAPI on Render, PostgreSQL on Neon)
