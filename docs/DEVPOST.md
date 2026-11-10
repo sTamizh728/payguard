@@ -113,6 +113,6 @@ paypal-orders, paypal-payouts, paypal-subscriptions, paypal-webhooks, twilio, re
 
 ## Links
 - Code: https://github.com/sTamizh728/payguard
-- Video: https://youtu.be/OMXE-kf5-eA
+- Video: https://youtu.be/BN8WcEeVKtA
 - App (APK): https://github.com/sTamizh728/payguard/releases
 - User guide: https://github.com/sTamizh728/payguard/blob/main/docs/USER_GUIDE.md
